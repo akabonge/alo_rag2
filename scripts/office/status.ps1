@@ -30,6 +30,8 @@ $rows = foreach ($desk in $context.Desks) {
     }
 }
 $rows | Format-Table -AutoSize
+$sharedWorkspaceState = try { Assert-OfficeSharedWorkspace $context; 'Ready' } catch { 'Missing or mismatched' }
+Write-Host "Shared office workspace: $sharedWorkspaceState"
 
 Write-Host 'CLI tools available on PATH:'
 foreach ($tool in @('git', 'code', 'node', 'npm', 'gh', 'codex', 'claude', 'cline')) {
@@ -41,4 +43,4 @@ foreach ($name in @('ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'XAI_API_KEY', 'OPENR
     $configured = -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name, 'Process'))
     Write-Host ('  {0}: {1}' -f $name, $(if ($configured) { 'Present' } else { 'Not present' }))
 }
-Write-Host 'Check Claude, Codex, and Cline provider sign-ins inside each named VS Code profile.'
+Write-Host 'Check Claude, Codex, and Cline provider sign-ins in the shared office Default profile.'

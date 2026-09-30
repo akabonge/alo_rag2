@@ -1,6 +1,6 @@
 # Alo's AI office
 
-Three separate VS Code desks share this repository through GitHub. They can run simultaneously while editing independent Git worktrees. The agents do not share a live conversation: tasks, branches, PRs and handoffs are the shared record.
+One VS Code office window contains the Claude, Codex and Grok working folders. They can run simultaneously while editing independent Git worktrees. Each extension still has its own conversation: tasks, branches, PRs and handoffs are the shared record.
 
 ```mermaid
 flowchart TB
@@ -38,7 +38,7 @@ From the `alo_rag2` repository in PowerShell:
 ./scripts/office/status.ps1
 ```
 
-Setup creates sibling folders `alo-claude`, `alo-codex`, `alo-grok` and local workspace files in `alo-office`. Each desk opens in its own VS Code window and profile: **Alo Claude**, **Alo Codex**, **Alo Grok**. Profiles separate VS Code settings and extension selections; some extensions share provider settings or credentials across profiles, so check each desk's model picker. Opening windows does not itself send a model request or start a recurring background agent.
+Setup creates sibling folders `alo-claude`, `alo-codex`, `alo-grok` and local workspace files in `alo-office`. By default, `open.ps1` opens **Alo Office.code-workspace** in one VS Code window using the Default profile, where all three extensions are installed. The Explorer shows three folders. Opening the office does not send a model request or start a recurring background agent.
 
 The main repository stays separate. Setup preserves existing worktrees and custom workspace settings, refuses mismatched folders, and supports `-WhatIf`. It never resets or deletes work. Fetch changes first if you want a newly created branch to use the newest `origin/main`:
 
@@ -47,13 +47,17 @@ git fetch origin
 ./scripts/office/setup.ps1 -BaseRef origin/main
 ```
 
-Only open one desk with `./scripts/office/open.ps1 -Agent Claude` (or `Codex` / `Grok`). Keep concurrent edits inside the assigned worktree. All worktrees share Git refs and remote credentials, but not uncommitted files.
+Separate desk windows are optional: `./scripts/office/open.ps1 -Agent Claude` (or `Codex` / `Grok`). For the normal single-window office, omit `-Agent`. Keep concurrent edits inside the assigned worktree. Before starting a task, tell the extension which folder to use and have it confirm the Git root and branch. Do not assume all extensions select the same root in a multi-folder workspace. All worktrees share Git refs and remote credentials, but not uncommitted files.
+
+The shared workspace lists Grok first because Cline loads its rules and Git context from the primary folder. Cline's automatic checkpoints are unavailable in multi-root workspaces, so use Git commits for recovery. Claude and Codex should explicitly work in their named folder. See [Cline's multi-root guidance](https://docs.cline.bot/features/multiroot-workspace).
 
 ## Connect accounts
 
-- **Claude:** open Claude Code in the Alo Claude window. Use the existing Claude sign-in, or sign in if requested. Confirm Opus 5.5 in its model picker. Subscription access and usage limits are account-dependent.
-- **Codex:** open Codex in Alo Codex. Use the existing ChatGPT sign-in. Confirm GPT-6 Astra with Ultra reasoning. A new project may need to be trusted before its settings load.
-- **Grok:** in Alo Grok, open Cline settings. Select **OpenRouter**, enter the API key privately in that settings panel, and choose **`x-ai/grok-4.7`**. Use the same provider/model for Plan and Act if you want one model at this desk. Configure provider spending limits in your OpenRouter account before sustained use. Grok requests are billed separately from Claude/ChatGPT subscriptions.
+- **Claude:** open the Claude Code panel and use the `alo-claude` folder. Use the existing Claude sign-in, or sign in if requested. Confirm Opus 5.5 in its model picker. Subscription access and usage limits are account-dependent.
+- **Codex:** open the Codex panel and use `alo-codex`. Use the existing ChatGPT sign-in. Confirm GPT-6 Astra with Ultra reasoning. A new project may need to be trusted before its settings load.
+- **Grok:** open Cline settings and use `alo-grok` for tasks. Select **OpenRouter**, enter the API key privately in that settings panel, and choose **`x-ai/grok-4.7`**. Use the same provider/model for Plan and Act if you want one model at this desk. Configure provider spending limits in your OpenRouter account before sustained use. Grok requests are billed separately from Claude/ChatGPT subscriptions.
+
+For first-time OpenRouter setup, open [OpenRouter](https://openrouter.ai/) and complete sign-in/account creation, then open [API keys](https://openrouter.ai/settings/keys). Create a key named `Alo Office` with a budget you choose, and paste it directly into Cline's OpenRouter API-key field. Account agreements, payment and the private key remain under your control. Send a short greeting after selecting the model to confirm connection; the desk is not connected until that succeeds.
 
 Do not put credentials into instructions, source files, issues or chat. The initial office installation added the tools; the reusable `setup.ps1` only creates worktrees and workspace files. Neither creates an OpenRouter account, purchases credits or establishes a connected Grok session until its provider is configured and a request succeeds.
 

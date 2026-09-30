@@ -58,7 +58,13 @@ function Get-OfficeContext {
             Add-Member NoteProperty WorkspacePath (Join-Path $office "alo-$($_.Slug).code-workspace") -PassThru |
             Add-Member NoteProperty Profile "Alo $($_.Name)" -PassThru
     }
-    [pscustomobject]@{ RepositoryPath = $repository; CommonDir = $commonDir; OfficePath = $office; Desks = @($desks) }
+    [pscustomobject]@{
+        RepositoryPath = $repository
+        CommonDir = $commonDir
+        OfficePath = $office
+        SharedWorkspacePath = Join-Path $office 'Alo Office.code-workspace'
+        Desks = @($desks)
+    }
 }
 
 function Assert-OfficeWorktree {
@@ -107,5 +113,45 @@ function Assert-OfficeWorkspace {
     if (@($workspace.folders).Count -ne 1 -or
         -not (Test-OfficeSamePath $workspace.folders[0].path $Desk.Path)) {
         throw "Workspace $($Desk.WorkspacePath) points elsewhere. Refusing to overwrite or open it."
+    }
+}
+
+function Get-OfficeSharedWorkspaceText {
+    param([Parameter(Mandatory)]$Context)
+    # Cline uses the first workspace root for rules and Git context.
+    $orderedDesks = @($Context.Desks | Where-Object Slug -eq 'grok') + @($Context.Desks | Where-Object Slug -ne 'grok')
+    $workspace = [ordered]@{
+        folders = @($orderedDesks | ForEach-Object {
+            [ordered]@{ name = "Alo $($_.Name)"; path = $_.Path }
+        })
+        settings = [ordered]@{
+            'window.title' = 'Alo Office | ${activeEditorShort}${separator}${rootName}'
+            'workbench.colorCustomizations' = [ordered]@{
+                'titleBar.activeBackground' = '#24384b'
+                'titleBar.activeForeground' = '#ffffff'
+                'activityBar.background' = '#24384b'
+            }
+            'git.autofetch' = $false
+        }
+        extensions = [ordered]@{ recommendations = @($Context.Desks | ForEach-Object { $_.Extension }) }
+    }
+    ($workspace | ConvertTo-Json -Depth 6) + [Environment]::NewLine
+}
+
+function Assert-OfficeSharedWorkspace {
+    param([Parameter(Mandatory)]$Context)
+    if (-not (Test-Path -LiteralPath $Context.SharedWorkspacePath -PathType Leaf)) {
+        throw "Shared office workspace is missing: $($Context.SharedWorkspacePath). Run setup.ps1 first."
+    }
+    try { $workspace = Get-Content -LiteralPath $Context.SharedWorkspacePath -Raw | ConvertFrom-Json }
+    catch { throw "Cannot read shared workspace JSON at $($Context.SharedWorkspacePath): $_" }
+    if (@($workspace.folders).Count -ne $Context.Desks.Count) {
+        throw "Shared workspace must contain exactly the three office worktrees. Refusing to overwrite or open $($Context.SharedWorkspacePath)."
+    }
+    foreach ($desk in $Context.Desks) {
+        $matchingFolders = @($workspace.folders | Where-Object { Test-OfficeSamePath $_.path $desk.Path })
+        if ($matchingFolders.Count -ne 1) {
+            throw "Shared workspace does not contain exactly one $($desk.Name) worktree at $($desk.Path). Refusing to overwrite or open it."
+        }
     }
 }
