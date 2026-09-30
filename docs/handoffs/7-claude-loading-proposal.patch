@@ -1,0 +1,124 @@
+diff --git a/src/main.js b/src/main.js
+--- a/src/main.js
++++ b/src/main.js
+@@ -48,11 +48,19 @@
+ const lineMats = [];  // LineMaterials that need the viewport size
+ let onMissClick = null, onLeaveSkills = null, stopFlight = null; // scene interaction cleanup
+-const loaded = {};    // IMAGES key -> HTMLImageElement, only for files that exist
+-const imgReady = Promise.all(Object.entries(IMAGES).map(([k, v]) => new Promise((res) => {
+-  const im = new Image(); im.decoding = 'async';
+-  im.onload = () => { loaded[k] = im; res(); }; im.onerror = () => res(); im.src = v.src;
+-  setTimeout(res, 4000);
+-})));
+-imgReady.then(() => { if (loaded.portrait) { $('#portrait-badge').src = 'assets/portrait-square.jpg'; $('#portrait-btn').hidden = false; } });
+-const photo = (k) => loaded[k] ? `<figure class="proof"><img src="${IMAGES[k].src}" alt="${esc(IMAGES[k].alt)}">${IMAGES[k].caption ? `<figcaption>${esc(IMAGES[k].caption)}</figcaption>` : ''}</figure>` : '';
++let sceneFailed = false; // set if boot() fails, so photos that arrive later leave the scene alone
++const loaded = {};    // IMAGES key -> HTMLImageElement, filled whenever each file arrives
++const photoFailed = new Set(); // IMAGES keys known to be missing or broken
++const photoRequests = {}; // IMAGES key -> Promise<HTMLImageElement | null>, one request per file
++// Photos never gate boot: each request starts on first use (or warmPhotos) with no timeout, so a late file still lands.
++const loadPhoto = (k) => (photoRequests[k] ||= IMAGES[k] ? new Promise((res) => {
++  const im = new Image(); im.decoding = 'async'; im.fetchPriority = 'low';
++  im.onload = () => { loaded[k] = im; res(im); }; im.onerror = () => { photoFailed.add(k); res(null); }; im.src = IMAGES[k].src;
++}) : Promise.resolve(null));
++const warmPhotos = () => Object.keys(IMAGES).forEach(loadPhoto);
++const hasPhoto = (k) => !!IMAGES[k] && !photoFailed.has(k);
++// The welcome badge is its own small file, so it shows as soon as it arrives, independent of every other photo.
++{ const badge = $('#portrait-badge'); badge.decoding = 'async';
++  badge.addEventListener('load', () => { $('#portrait-btn').hidden = false; }, { once: true });
++  badge.src = 'assets/portrait-square.jpg'; }
++const photo = (k) => hasPhoto(k) ? `<figure class="proof"><img src="${IMAGES[k].src}" alt="${esc(IMAGES[k].alt)}" data-photo="${esc(k)}" decoding="async">${IMAGES[k].caption ? `<figcaption>${esc(IMAGES[k].caption)}</figcaption>` : ''}</figure>` : '';
+ // Lite offer: a dismissible bar pointing weak/slow devices to the fast text version (stays hidden once dismissed).
+@@ -196,3 +204,3 @@
+     const b = COMMUNITY.builds.find((x) => x.id === id);
+-    const media = b.video ? `<figure class="proof"><video src="${b.video}" ${loaded[b.photo] ? `poster="${IMAGES[b.photo].src}"` : ''} controls preload="none" muted playsinline aria-label="Short clip of the Goose Creek Habitat crew"></video><figcaption>${esc(IMAGES[b.photo]?.caption || '')}</figcaption></figure>` : (b.photo ? photo(b.photo) : '');
++    const media = b.video ? `<figure class="proof"><video src="${b.video}" ${hasPhoto(b.photo) ? `poster="${IMAGES[b.photo].src}"` : ''} controls preload="none" muted playsinline aria-label="Short clip of the Goose Creek Habitat crew"></video><figcaption>${esc(IMAGES[b.photo]?.caption || '')}</figcaption></figure>` : (b.photo ? photo(b.photo) : '');
+     return `${media}<span class="eyebrow">Spring Break ${esc(b.year)} · ${esc(b.role)}</span><h3 id="drawer-title">${esc(b.city)}, ${esc(b.state)}</h3>
+@@ -207,5 +215,7 @@
+ function openDrawer(key, opener = document.activeElement) {
+   const [kind, id] = key.split(':');
+   $('#drawer-body').innerHTML = builders[kind](id);
++  // A photo that turns out to be missing is dropped from this drawer and skipped from then on
++  $('#drawer-body').querySelectorAll('img[data-photo]').forEach((img) => img.addEventListener('error', () => { photoFailed.add(img.dataset.photo); img.closest('figure')?.remove(); }, { once: true }));
+   drawer.classList.add('open');
+   showModal(drawer, $('#drawer-close'), opener);
+@@ -876,3 +886,3 @@
+   document.body.classList.add('no-webgl');
+-  window.portfolioBoot?.ready(); openDeepLink();
++  window.portfolioBoot?.ready(); openDeepLink(); warmPhotos();
+   $('#hint').innerHTML = 'Your browser could not start 3D, so this is the simple version. <a href="text.html">Read the text version</a>';
+@@ -885,3 +895,4 @@
+ if (renderer) boot().catch(() => {
++  sceneFailed = true;
+   renderer.setAnimationLoop(null); lenis?.destroy(); lenis = null;
+   document.documentElement.classList.add('no-webgl');
+@@ -915,5 +926,4 @@
+
+   await Promise.race([document.fonts?.ready, new Promise((r) => setTimeout(r, 1500))]);
+-  await Promise.race([imgReady, new Promise((r) => setTimeout(r, 2500))]);
+-  await progress(0.05, 'Loading type, photos and shaders');
++  await progress(0.05, 'Loading type and shaders');
+
+@@ -1231,6 +1241,7 @@
+
+-  // Postcard from Fredericksburg: the UMW campus photo floats beside the arrival point
++  // Postcard from Fredericksburg: the UMW campus photo floats beside the arrival point once it arrives
+   let postcard = null;
+-  if (loaded.umw) {
+-    const im = loaded.umw, tex = new THREE.Texture(im); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.needsUpdate = true;
++  function addPostcard(im) {
++    if (postcard) return;
++    const tex = new THREE.Texture(im); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.needsUpdate = true;
+     const pw = 5.2, ph = pw * im.naturalHeight / im.naturalWidth;
+@@ -1472,5 +1483,6 @@
+   // The live app floats in front of the sealed proof it produces
+   const screenU = { uTime: U.uTime, uHover: docU.uHover, uMap: { value: null } };
+-  if (loaded.proofmode) {
+-    const im = loaded.proofmode, W = 1400, H = Math.round(W * im.naturalHeight / im.naturalWidth), bar = 56;
++  function addProofScreen(im) {
++    if (screenU.uMap.value) return;
++    const W = 1400, H = Math.round(W * im.naturalHeight / im.naturalWidth), bar = 56;
+     const cv = document.createElement('canvas'); cv.width = W; cv.height = H + bar; const x = cv.getContext('2d');
+@@ -1493,5 +1505,6 @@
+     doc.position.set(1.5, 0.7, -0.6); seal.position.set(2.65, -0.8, -0.48); seal2.position.copy(seal.position);
+     checkRing.position.copy(doc.position);
++    proofHit.scale.x = 7.4 / 3.6; // widen the hit target to cover the app screen too
+   }
+   const proofLabel = label('ProofMode', '2nd Place · UMW Eagle Egg Pitch'); proofLabel.position.set(0, 3.4, 0); proof.add(proofLabel);
+-  const proofHit = new THREE.Mesh(new THREE.BoxGeometry(loaded.proofmode ? 7.4 : 3.6, 5.2, 2.6), new THREE.MeshBasicMaterial({ visible: false })); proof.add(proofHit);
++  const proofHit = new THREE.Mesh(new THREE.BoxGeometry(3.6, 5.2, 2.6), new THREE.MeshBasicMaterial({ visible: false })); proof.add(proofHit);
+@@ -1762,14 +1775,12 @@
+-  // Portrait hologram at first light (falls back to a monogram if no photo is supplied)
+-  await Promise.race([imgReady, new Promise((r) => setTimeout(r, 2500))]);
++  // Portrait hologram at first light: a monogram until the photo arrives, then paintHolo swaps it in
+   const holoCanvas = document.createElement('canvas'); holoCanvas.width = 640; holoCanvas.height = 800;
+   { const x = holoCanvas.getContext('2d');
+-    if (loaded.finale) {
+-      const im = loaded.finale, sc = Math.max(640 / im.naturalWidth, 800 / im.naturalHeight), w = im.naturalWidth * sc, h2 = im.naturalHeight * sc;
+-      x.drawImage(im, (640 - w) / 2, 0, w, h2);
+-    } else {
+-      const g = x.createRadialGradient(320, 360, 40, 320, 400, 420); g.addColorStop(0, '#1b2a5c'); g.addColorStop(1, '#060a17');
+-      x.fillStyle = g; x.fillRect(0, 0, 640, 800);
+-      x.strokeStyle = 'rgba(232,181,74,0.8)'; x.lineWidth = 3; x.beginPath(); x.arc(320, 380, 190, 0, Math.PI * 2); x.stroke();
+-      x.fillStyle = '#eef1f8'; x.font = '800 210px "Bricolage Grotesque", system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('AK', 320, 392);
+-    } }
++    const g = x.createRadialGradient(320, 360, 40, 320, 400, 420); g.addColorStop(0, '#1b2a5c'); g.addColorStop(1, '#060a17');
++    x.fillStyle = g; x.fillRect(0, 0, 640, 800);
++    x.strokeStyle = 'rgba(232,181,74,0.8)'; x.lineWidth = 3; x.beginPath(); x.arc(320, 380, 190, 0, Math.PI * 2); x.stroke();
++    x.fillStyle = '#eef1f8'; x.font = '800 210px "Bricolage Grotesque", system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('AK', 320, 392); }
+   const holoTex = new THREE.CanvasTexture(holoCanvas); holoTex.colorSpace = THREE.SRGBColorSpace;
++  function paintHolo(im) {
++    const x = holoCanvas.getContext('2d'), sc = Math.max(640 / im.naturalWidth, 800 / im.naturalHeight), w = im.naturalWidth * sc, h2 = im.naturalHeight * sc;
++    x.clearRect(0, 0, 640, 800); x.drawImage(im, (640 - w) / 2, 0, w, h2); holoTex.needsUpdate = true;
++  }
+@@ -1945,3 +1956,11 @@
+   // Compile every shader up front so nothing stalls or flashes the first time it comes into view
+   try { renderer.compile(scene, camera); } catch { /* optional */ }
++  // Photos upgrade their procedural stand-ins whenever they arrive; a slow, late or missing file never blocks this frame
++  const hydratePhoto = (k, apply) => loadPhoto(k).then((im) => {
++    if (!im || sceneFailed) return;
++    apply(im);
++    return renderer.compileAsync?.(scene, camera); // warm the new shaders off the critical path
++  }).catch(() => { /* keep the procedural fallback */ });
++  hydratePhoto('umw', addPostcard); hydratePhoto('proofmode', addProofScreen); hydratePhoto('finale', paintHolo);
++  warmPhotos();

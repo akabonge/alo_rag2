@@ -8,7 +8,7 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,6 +30,8 @@ jobs:
         run: npm run test:browser -- http://127.0.0.1:5174 test-results
       - name: Sound, navigation, enlarged text and motion
         run: npm run test:experience -- http://127.0.0.1:5174 test-results/experience
+      - name: Progressive media, delayed images and graphics recovery
+        run: npm run test:media -- http://127.0.0.1:5174 test-results/media
       - uses: actions/upload-artifact@v4
         if: always()
         with:

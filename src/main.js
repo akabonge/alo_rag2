@@ -20,6 +20,7 @@ import { ugandaFlag, usFlag } from './flags.js?v=16';
 import { buildCorpus, makeIndex, extract, ragPrompt } from './ask.js?v=16';
 import { fetchJSON } from './network.js?v=17';
 import { localAtmosphere, placeLabels } from './atmosphere.js?v=18';
+import { createImageLoader, createStationMedia } from './media.js?v=19';
 
 /* ------------------------------------------------------------------ */
 /* Environment                                                         */
@@ -47,14 +48,25 @@ const HIGH = () => tier === 'high';
 const linkHover = {}; // data-open key -> hover(on), filled by the 3D scene
 const lineMats = [];  // LineMaterials that need the viewport size
 let onMissClick = null, onLeaveSkills = null, stopFlight = null; // scene interaction cleanup
-const loaded = {};    // IMAGES key -> HTMLImageElement, only for files that exist
-const imgReady = Promise.all(Object.entries(IMAGES).map(([k, v]) => new Promise((res) => {
-  const im = new Image(); im.decoding = 'async';
-  im.onload = () => { loaded[k] = im; res(); }; im.onerror = () => res(); im.src = v.src;
-  setTimeout(res, 4000);
-})));
-imgReady.then(() => { if (loaded.portrait) { $('#portrait-badge').src = 'assets/portrait-square.jpg'; $('#portrait-btn').hidden = false; } });
-const photo = (k) => loaded[k] ? `<figure class="proof"><img src="${IMAGES[k].src}" alt="${esc(IMAGES[k].alt)}">${IMAGES[k].caption ? `<figcaption>${esc(IMAGES[k].caption)}</figcaption>` : ''}</figure>` : '';
+let sceneFailed = false;
+const { load: loadPhoto, failed: photoFailed } = createImageLoader(IMAGES);
+const hasPhoto = (key) => !!IMAGES[key] && !photoFailed.has(key);
+// The browser starts the small welcome portrait directly from HTML. Keep its
+// reserved space and profile button even when the image fails (AK is the fallback).
+{ const badge = $('#portrait-badge');
+  const reveal = () => { if (badge.naturalWidth) badge.classList.add('loaded'); };
+  badge.addEventListener('load', reveal, { once: true });
+  if (badge.complete) reveal(); }
+const photo = (k) => hasPhoto(k) ? `<figure class="proof"><img src="${IMAGES[k].src}" width="${IMAGES[k].width}" height="${IMAGES[k].height}" style="aspect-ratio:${IMAGES[k].width}/${IMAGES[k].height}" alt="${esc(IMAGES[k].alt)}" data-photo="${esc(k)}" decoding="async">${IMAGES[k].caption ? `<figcaption>${esc(IMAGES[k].caption)}</figcaption>` : ''}</figure>` : '';
+// Capture errors before inserting drawer markup, including immediate cache errors.
+$('#drawer-body').addEventListener('error', (event) => {
+  const image = event.target;
+  if (!image.matches?.('img[data-photo]')) return;
+  photoFailed.add(image.dataset.photo);
+  if (image.dataset.photo === 'profile' && hasPhoto('portrait')) {
+    image.dataset.photo = 'portrait'; image.alt = IMAGES.portrait.alt; image.src = IMAGES.portrait.src;
+  } else image.closest('figure')?.remove();
+}, true);
 // Lite offer: a dismissible bar pointing weak/slow devices to the fast text version (stays hidden once dismissed).
 function offerLite(why) {
   const el = $('#lite-offer'); if (!el || !el.hidden || store.get('lite-dismissed') === '1') return;
@@ -194,7 +206,7 @@ const builders = {
   },
   build: (id) => {
     const b = COMMUNITY.builds.find((x) => x.id === id);
-    const media = b.video ? `<figure class="proof"><video src="${b.video}" ${loaded[b.photo] ? `poster="${IMAGES[b.photo].src}"` : ''} controls preload="none" muted playsinline aria-label="Short clip of the Goose Creek Habitat crew"></video><figcaption>${esc(IMAGES[b.photo]?.caption || '')}</figcaption></figure>` : (b.photo ? photo(b.photo) : '');
+    const media = b.video ? `<figure class="proof"><video src="${b.video}" width="${b.videoWidth}" height="${b.videoHeight}" style="aspect-ratio:${b.videoWidth}/${b.videoHeight}" ${hasPhoto(b.photo) ? `data-poster="${esc(b.photo)}"` : ''} controls preload="none" muted playsinline aria-label="Short clip of the Goose Creek Habitat crew"></video><figcaption>${esc(IMAGES[b.photo]?.caption || '')}</figcaption></figure>` : (b.photo ? photo(b.photo) : '');
     return `${media}<span class="eyebrow">Spring Break ${esc(b.year)} · ${esc(b.role)}</span><h3 id="drawer-title">${esc(b.city)}, ${esc(b.state)}</h3>
       <p>${esc(b.text)}</p><p class="sub">With ${esc(b.org)}</p>
       <div class="cta-row"><a class="cta" href="${b.href}" target="_blank" rel="noopener">Visit ${esc(b.org)} ↗</a><button class="cta ghost" type="button" data-open="community:all">All builds</button></div>`;
@@ -207,6 +219,11 @@ const builders = {
 function openDrawer(key, opener = document.activeElement) {
   const [kind, id] = key.split(':');
   $('#drawer-body').innerHTML = builders[kind](id);
+  $('#drawer-body').querySelectorAll('video[data-poster]').forEach((video) => {
+    loadPhoto(video.dataset.poster, 'auto').then((image) => {
+      if (image && video.isConnected) video.poster = image.src;
+    }).catch(() => { /* a missing poster does not prevent video playback */ });
+  });
   drawer.classList.add('open');
   showModal(drawer, $('#drawer-close'), opener);
   audio.ping(kind === 'demo' ? 880 : 660);
@@ -883,6 +900,7 @@ try {
 }
 
 if (renderer) boot().catch(() => {
+  sceneFailed = true;
   renderer.setAnimationLoop(null); lenis?.destroy(); lenis = null;
   document.documentElement.classList.add('no-webgl');
   window.portfolioBoot?.fail();
@@ -914,8 +932,7 @@ async function boot() {
   const register = (obj, entry) => { obj.userData.hit = entry; hits.push(obj); };
 
   await Promise.race([document.fonts?.ready, new Promise((r) => setTimeout(r, 1500))]);
-  await Promise.race([imgReady, new Promise((r) => setTimeout(r, 2500))]);
-  await progress(0.05, 'Loading type, photos and shaders');
+  await progress(0.05, 'Loading type and shaders');
 
   const hemisphere = new THREE.HemisphereLight(0x8fa8ff, 0x0a0f24, 0.6); scene.add(hemisphere);
   const key = new THREE.DirectionalLight(0xffe2b0, 1.2); key.position.set(10, 20, 10); scene.add(key);
@@ -1077,10 +1094,19 @@ async function boot() {
     g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.18, 'rgba(255,226,150,0.95)'); g.addColorStop(0.45, 'rgba(232,181,74,0.35)'); g.addColorStop(1, 'rgba(232,181,74,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   let visItems = [], visLine = null, visEmpty = null, visCount = $('#vis-count');
+  let clearVisitorHover = () => {}; // assigned after pointer state exists below
   function buildVisitorSky(list) {
-    visItems.forEach((it) => { vis.remove(it.g); it.tag.material.map.dispose(); }); visItems = [];
-    if (visLine) { vis.remove(visLine); visLine.geometry.dispose(); visLine = null; }
-    if (visEmpty) { vis.remove(visEmpty); visEmpty = null; }
+    visItems.forEach((it) => {
+      const index = hits.indexOf(it.hit); if (index !== -1) hits.splice(index, 1);
+      clearVisitorHover(it.hit);
+      gsap.killTweensOf(it.star.scale);
+      vis.remove(it.g); it.g.clear();
+      it.tag.material.map.dispose(); it.tag.material.dispose();
+      // Sprite geometry and glowTex are shared; only these per-note resources are owned here.
+      it.star.material.dispose(); it.hit.geometry.dispose(); it.hit.material.dispose();
+    }); visItems = [];
+    if (visLine) { vis.remove(visLine); visLine.geometry.dispose(); visLine.material.dispose(); visLine = null; }
+    if (visEmpty) { vis.remove(visEmpty); visEmpty.material.map.dispose(); visEmpty.material.dispose(); visEmpty = null; }
     const shown = list.slice(0, 60), ga = Math.PI * (3 - Math.sqrt(5)), pts = [];
     shown.forEach((n, i) => {
       const r = 1.4 + Math.sqrt(i) * 1.9, a = i * ga + 0.4, p = new THREE.Vector3(Math.cos(a) * r * 1.3, Math.sin(a) * r * 0.8, Math.sin(i * 1.3) * 0.8);
@@ -1091,7 +1117,7 @@ async function boot() {
       const hit = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), new THREE.MeshBasicMaterial({ visible: false })); g.add(hit);
       register(hit, { label: `${n.name}${n.city ? ` · ${n.city}` : ''}: “${n.msg}”`, click: () => { toast(`${n.name}${n.city ? ` from ${n.city}` : ''}: “${n.msg}”`); audio.ping(1046, 0.08); },
         hover: (on) => tween(star.scale, { x: size * (on ? 1.5 : 1), y: size * (on ? 1.5 : 1), duration: 0.3 }) });
-      visItems.push({ g, star, tag, size, seed: hash01(n.name, 7) });
+      visItems.push({ g, star, tag, hit, size, seed: hash01(n.name, 7) });
     });
     if (pts.length > 1) {
       const seg = []; for (let i = 1; i < pts.length; i++) { let j = 0, bd = Infinity; for (let k = 0; k < i; k++) { const d = pts[k].distanceToSquared(pts[i]); if (d < bd) { bd = d; j = k; } } seg.push(pts[j], pts[i]); }
@@ -1229,10 +1255,11 @@ async function boot() {
   plantFlag(ugandaFlag(), A);
   plantFlag(usFlag(), B);
 
-  // Postcard from Fredericksburg: the UMW campus photo floats beside the arrival point
+  // Claude's late-media design: attach the postcard once, whenever its photo arrives.
   let postcard = null;
-  if (loaded.umw) {
-    const im = loaded.umw, tex = new THREE.Texture(im); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.needsUpdate = true;
+  function addPostcard(im) {
+    if (postcard) return;
+    const tex = new THREE.Texture(im); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.needsUpdate = true;
     const pw = 5.2, ph = pw * im.naturalHeight / im.naturalWidth;
     const pcU = { uTime: U.uTime, uMap: { value: tex }, uHover: { value: 0 } };
     postcard = new THREE.Group();
@@ -1471,8 +1498,9 @@ async function boot() {
   for (let i = 0; i < 10; i++) { const c = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshBasicMaterial({ color: SIGNAL.clone().multiplyScalar(1.8) })); const a = (i / 10) * Math.PI * 2; c.position.set(Math.cos(a) * 3, Math.sin(a) * 3, 0); checkRing.add(c); }
   // The live app floats in front of the sealed proof it produces
   const screenU = { uTime: U.uTime, uHover: docU.uHover, uMap: { value: null } };
-  if (loaded.proofmode) {
-    const im = loaded.proofmode, W = 1400, H = Math.round(W * im.naturalHeight / im.naturalWidth), bar = 56;
+  function addProofScreen(im) {
+    if (screenU.uMap.value) return;
+    const W = 1400, H = Math.round(W * im.naturalHeight / im.naturalWidth), bar = 56;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H + bar; const x = cv.getContext('2d');
     x.fillStyle = '#0b1128'; x.fillRect(0, 0, W, bar);
     ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => { x.fillStyle = c; x.beginPath(); x.arc(32 + i * 28, bar / 2, 8, 0, Math.PI * 2); x.fill(); });
@@ -1492,9 +1520,10 @@ async function boot() {
     screen.position.set(-1.7, -0.7, 1.2); screen.rotation.y = 0.3; proof.add(screen);
     doc.position.set(1.5, 0.7, -0.6); seal.position.set(2.65, -0.8, -0.48); seal2.position.copy(seal.position);
     checkRing.position.copy(doc.position);
+    proofHit.scale.x = 7.4 / 3.6;
   }
-  const proofLabel = label('ProofMode', '2nd Place · UMW Eagle Egg Pitch'); proofLabel.position.set(0, 3.4, 0); proof.add(proofLabel);
-  const proofHit = new THREE.Mesh(new THREE.BoxGeometry(loaded.proofmode ? 7.4 : 3.6, 5.2, 2.6), new THREE.MeshBasicMaterial({ visible: false })); proof.add(proofHit);
+  // Project titles are in the HTML list and pointer labels, clear at every camera angle.
+  const proofHit = new THREE.Mesh(new THREE.BoxGeometry(3.6, 5.2, 2.6), new THREE.MeshBasicMaterial({ visible: false })); proof.add(proofHit);
   const proofEntry = { label: 'ProofMode · open case study', click: () => openDrawer('proj:proofmode'),
     hover: (on) => { tween(docU.uHover, { value: on ? 1 : 0, duration: 0.4 }); tween(proof.rotation, { y: on ? -0.15 : -0.35, duration: 0.8 }); } };
   register(proofHit, proofEntry); linkHover['proj:proofmode'] = proofEntry.hover;
@@ -1513,7 +1542,6 @@ async function boot() {
   query.position.set(0, 4, 0); rag.add(query);
   const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
   const beam = new THREE.Line(beamGeo, new THREE.LineBasicMaterial({ color: GOLD, transparent: true, opacity: 0.9 })); rag.add(beam);
-  const ragLabel = label('Emergency Alerting RAG', 'NCUR 2026 · Pinecone', { accent: '#6fe3d6' }); ragLabel.position.set(0, 5.2, 0); rag.add(ragLabel);
   const ragHit = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 8, 12), new THREE.MeshBasicMaterial({ visible: false })); ragHit.position.y = 0.5; rag.add(ragHit);
   let ragHover = 0;
   const ragEntry = { label: 'RAG research · open case study', click: () => openDrawer('proj:rag'), hover: (on) => { ragHover = on ? 1 : 0; } };
@@ -1759,20 +1787,19 @@ async function boot() {
       gl_FragColor = vec4(c, max(a1, rim)); }`,
   }));
   ridge.position.set(0, 57, -560); scene.add(ridge);
-  // Portrait hologram at first light (falls back to a monogram if no photo is supplied)
-  await Promise.race([imgReady, new Promise((r) => setTimeout(r, 2500))]);
+  // Portrait hologram starts as a monogram; late media repaints the same texture.
   const holoCanvas = document.createElement('canvas'); holoCanvas.width = 640; holoCanvas.height = 800;
   { const x = holoCanvas.getContext('2d');
-    if (loaded.finale) {
-      const im = loaded.finale, sc = Math.max(640 / im.naturalWidth, 800 / im.naturalHeight), w = im.naturalWidth * sc, h2 = im.naturalHeight * sc;
-      x.drawImage(im, (640 - w) / 2, 0, w, h2);
-    } else {
       const g = x.createRadialGradient(320, 360, 40, 320, 400, 420); g.addColorStop(0, '#1b2a5c'); g.addColorStop(1, '#060a17');
       x.fillStyle = g; x.fillRect(0, 0, 640, 800);
       x.strokeStyle = 'rgba(232,181,74,0.8)'; x.lineWidth = 3; x.beginPath(); x.arc(320, 380, 190, 0, Math.PI * 2); x.stroke();
       x.fillStyle = '#eef1f8'; x.font = '800 210px "Bricolage Grotesque", system-ui, sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('AK', 320, 392);
-    } }
+    }
   const holoTex = new THREE.CanvasTexture(holoCanvas); holoTex.colorSpace = THREE.SRGBColorSpace;
+  function paintHolo(im) {
+    const x = holoCanvas.getContext('2d'), sc = Math.max(640 / im.naturalWidth, 800 / im.naturalHeight), w = im.naturalWidth * sc, h = im.naturalHeight * sc;
+    x.drawImage(im, (640 - w) / 2, 0, w, h); holoTex.needsUpdate = true;
+  }
   const holoU = { uTime: U.uTime, uDawn: U.uDawn, uMap: { value: holoTex }, uHover: { value: 0 } };
   const holo = new THREE.Group(); holo.position.copy(P.contact); scene.add(holo);
   const holoPlane = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 4.25, 1, 1), new THREE.ShaderMaterial({
@@ -1870,7 +1897,7 @@ async function boot() {
     
   }
   applyTier();
-  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); renderer.setAnimationLoop(null); lenis?.destroy(); lenis = null; window.portfolioBoot?.fail(); }, false);
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); sceneFailed = true; renderer.setAnimationLoop(null); lenis?.destroy(); lenis = null; window.portfolioBoot?.fail(); }, false);
   canvas.addEventListener('webglcontextrestored', () => location.reload(), false);
   
 
@@ -1886,6 +1913,7 @@ async function boot() {
   const ray = new THREE.Raycaster(); ray.params.Points.threshold = 5;
   const cursor = $('#cursor'), cLabel = $('#cursor-label');
   let drag = null, hovered = null, hoveredHit = null, needsPick = false;
+  clearVisitorHover = (hit) => { if (hoveredHit?.object === hit) setHover(null); };
   canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0, lx: look.tx, ly: look.ty }; });
   addEventListener('pointermove', (e) => {
     mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
@@ -1944,6 +1972,13 @@ async function boot() {
 
   // Compile every shader up front so nothing stalls or flashes the first time it comes into view
   try { renderer.compile(scene, camera); } catch { /* optional */ }
+  // Fetch only media near the current section. Save-Data narrows the window to
+  // half a station; drawer-only photos are requested only when opened.
+  const updateScenePhotos = createStationMedia([
+    { key: 'umw', station: 2, apply: addPostcard },
+    { key: 'proofmode', station: 4, apply: addProofScreen },
+    { key: 'finale', station: 9, apply: paintHolo },
+  ], loadPhoto, () => !sceneFailed);
 
   /* ---------- loop ---------- */
   const fogNight = NIGHT.clone(), fogDay = new THREE.Color(0x365879), fogDawn = new THREE.Color(0x24141f);
@@ -1960,6 +1995,7 @@ async function boot() {
     if (lenis) lenis.raf(performance.now());
     const y = lenis ? lenis.scroll : scrollY;
     const f = stationFloat(y);
+    updateScenePhotos(f, !!navigator.connection?.saveData);
     updateHUD(f);
     audio.update(f);
 
