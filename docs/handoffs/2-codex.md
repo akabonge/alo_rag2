@@ -2,7 +2,7 @@
 
 - Owner / branch: Codex / `codex/mobile-architecture`
 - Issue: https://github.com/akabonge/alo_rag2/issues/2
-- PR: not opened; no push or merge performed.
+- PR: https://github.com/akabonge/alo_rag2/pull/5
 - Starting commit: `a218c2e926318be4238d70f3cf069cf7ece6d76c`
 - Status: source review complete; ready for browser verification and PR review.
 
