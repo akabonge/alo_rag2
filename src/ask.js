@@ -1,9 +1,10 @@
 // "Ask Alo": on-device retrieval over this site's own content (BM25, no network, no LLM).
 // Every answer cites its source chunk and flies the camera to the station it came from.
-import { PROFILE, TIMELINE, EXPERIENCE, PROJECTS, DEMOS, SKILLS, PLACES, STRENGTHS, COMMUNITY, UGANDA_FACTS } from './content.js?v=16';
+import { PROFILE, TIMELINE, EXPERIENCE, PROJECTS, DEMOS, SKILLS, PLACES, STRENGTHS, COMMUNITY, UGANDA_FACTS } from './content.js';
 
-const STOP = new Set('a an and are as at be by for from has have he him his how i in is it its me my of on or our that the this to was were what when where which who why will with you your does did do about tell can could would should any all there use used using uses know knows ever'.split(' '));
+const STOP = new Set('a an and are as at be by for from has have he him his how i in is it its me my of on or our that the this to was were what when where which who why will with you your does did do about tell can could would should any all there use used using uses know knows ever alo alos'.split(' '));
 const SYN = {
+  alo: ['profile'], alos: ['profile'], yourself: ['profile'],
   work: ['experience', 'intern', 'internship'], job: ['experience', 'intern'], jobs: ['experience', 'intern'], worked: ['experience', 'intern'],
   school: ['umw', 'university', 'degree'], college: ['umw', 'university', 'degree'], study: ['degree', 'data', 'science'], education: ['umw', 'degree'],
   award: ['place', 'pitch', 'ncur', 'presented', 'won'], awards: ['place', 'pitch', 'ncur', 'won'], won: ['place', 'pitch'],
