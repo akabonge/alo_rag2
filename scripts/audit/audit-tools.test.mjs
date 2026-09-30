@@ -1,0 +1,219 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { parseOptions, isWithin, mirroredFile, outputDirectory, networkMeter, summarizeFindings } from './audit-core.mjs';
+import { parseTickets, planLinks, linkedBody, marker } from '../roadmap/issue-core.mjs';
+
+test('audit CLI rejects unknown/empty selections and invalid budgets', () => {
+  for (const args of [['--devices', ''], ['--devices', 'unknown'], ['--devices', 'iphone-se,'], ['--budget-mb', 'NaN'], ['--budget-ready', '0'], ['--wat'], ['--url', 'file:///tmp/site'], ['--url', 'https://secret@example.org/']]) assert.throws(() => parseOptions(args));
+  assert.deepEqual(parseOptions(['--devices', 'iphone-se,laptop,iphone-se']).devices, ['iphone-se', 'laptop']);
+  assert.equal(parseOptions([]).enforce, undefined);
+});
+
+test('local mirror and output paths remain bounded', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alo-audit-test-'));
+  t.after(() => {
+    const resolved = fs.realpathSync(root);
+    assert.ok(isWithin(fs.realpathSync(os.tmpdir()), resolved));
+    assert.match(path.basename(resolved), /^alo-audit-test-/);
+    fs.rmSync(resolved, { recursive: true });
+  });
+  const packages = path.join(root, 'node_modules');
+  fs.mkdirSync(path.join(packages, 'three', 'build'), { recursive: true });
+  fs.writeFileSync(path.join(packages, 'three', 'build', 'module.js'), 'export const ok = true;');
+  assert.equal(mirroredFile(packages, 'https://cdn.jsdelivr.net/npm/three@0.186.1/build/module.js'), fs.realpathSync(path.join(packages, 'three', 'build', 'module.js')));
+  assert.equal(mirroredFile(packages, 'https://cdn.jsdelivr.net/npm/three@0.186.1/build%2f..%2f..%2fsecret'), null);
+  assert.equal(mirroredFile(packages, 'https://other.example/npm/three@0.186.1/build/module.js'), null);
+  assert.throws(() => outputDirectory(root, '../outside'));
+  assert.throws(() => outputDirectory(root, 'audit-output'));
+  assert.equal(outputDirectory(root, 'audit-output/safe'), path.join(root, 'audit-output', 'safe'));
+});
+
+test('initial network snapshot awaits its requests, separates encoded/decoded bytes and excludes later requests', async () => {
+  const page = new EventEmitter(), meter = networkMeter(page);
+  const first = { url: () => 'https://example.org/first.js?private=excluded', sizes: async () => ({ responseBodySize: 100, responseHeadersSize: 20 }) };
+  let release;
+  page.emit('request', first);
+  page.emit('response', { request: () => first, finished: () => new Promise((resolve) => { release = resolve; }), body: async () => Buffer.alloc(1000) });
+  const snapshot = meter.snapshot();
+  const later = { url: () => 'https://example.org/lazy.jpg', sizes: async () => ({ responseBodySize: 200, responseHeadersSize: 30 }) };
+  page.emit('request', later);
+  page.emit('response', { request: () => later, finished: async () => null, body: async () => Buffer.alloc(2000) });
+  release(null);
+  const initial = await snapshot;
+  assert.equal(initial.requests, 1);
+  assert.equal(initial.encodedBodyBytes, 100);
+  assert.equal(initial.transferBytes, 120);
+  assert.equal(initial.decodedBodyBytes, 1000);
+  assert.equal(initial.pendingRequests, 0);
+  assert.equal(initial.entries[0].url, 'https://example.org/first.js');
+  assert.equal((await meter.snapshot()).transferBytes, 350);
+  assert.equal(initial.transferBytes, 120, 'Later accounting cannot mutate the frozen initial result');
+});
+
+test('unfinished network requests are reported as incomplete instead of invented zero-byte success', async () => {
+  const page = new EventEmitter(), meter = networkMeter(page);
+  page.emit('request', { url: () => 'https://example.org/hung.js' });
+  const result = await meter.snapshot(1);
+  assert.equal(result.pendingRequests, 1);
+  assert.equal(result.completeRequests, 0);
+});
+
+test('tap occurrences and distinct controls are counted separately across repeated stations and profiles', () => {
+  const station = { smallTaps: [{ key: '#ask-toggle' }] };
+  assert.deepEqual(summarizeFindings({ phone: { stations: { hero: station, contact: station } }, tablet: { stations: { hero: station } } }), {
+    smallTapOccurrences: 3, uniqueSmallTapTargets: 1, uniqueSmallTapDevicePairs: 2,
+  });
+});
+
+test('roadmap IDs map to existing issues regardless of changed titles, and duplicate mappings fail', () => {
+  const tasks = parseTickets('### M1 Mobile controls\n\n### O1 Optional analytics\n');
+  assert.throws(() => parseTickets('### M1 One\n### M1 Two\n'));
+  const issues = [{ number: 11, title: 'Renamed UX issue', body: marker('M1'), state: 'open' }];
+  const plan = planLinks(tasks, { M1: 11, O1: null }, issues, true);
+  assert.equal(plan[0].action, 'already-linked');
+  assert.equal(plan[1].action, 'deferred');
+  assert.throws(() => planLinks(tasks, { M1: 11, O1: null }, [...issues, { number: 90, title: 'M1: Old duplicate' }], true));
+  assert.throws(() => planLinks(tasks, { M1: 11, O1: null }, [], true));
+  assert.throws(() => planLinks(tasks, {}, [], false));
+});
+
+test('issue body updates preserve existing content and checkbox state and are idempotent', () => {
+  const tasks = [{ id: 'M1', title: 'Mobile controls' }, { id: 'M4', title: 'Hero' }];
+  const original = '# Existing acceptance criteria\nKeep this text.';
+  const once = linkedBody(original, tasks.slice(0, 1), 'akabonge/alo_rag2');
+  const completed = once.replace('- [ ]', '- [x]');
+  const twice = linkedBody(completed, tasks, 'akabonge/alo_rag2');
+  assert.ok(twice.startsWith(original));
+  assert.match(twice, /- \[x\] <!-- alo-roadmap:M1 -->/);
+  assert.equal(twice.split(marker('M1')).length, 2);
+  assert.equal(linkedBody(twice, tasks, 'akabonge/alo_rag2'), twice);
+  assert.throws(() => linkedBody('<!-- alo-roadmap-map:start --> malformed', tasks, 'akabonge/alo_rag2'));
+  assert.throws(() => linkedBody(once + once, tasks, 'akabonge/alo_rag2'));
+});
+
+// Run the unchanged entry points as subprocesses: importing helpers alone cannot catch
+// top-level-await initialization failures. The adapter never launches a real browser.
+function cliFixture(t) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'alo-audit-cli-'));
+  t.after(() => {
+    const resolved = fs.realpathSync(root);
+    assert.ok(isWithin(fs.realpathSync(os.tmpdir()), resolved));
+    assert.match(path.basename(resolved), /^alo-audit-cli-/);
+    fs.rmSync(resolved, { recursive: true });
+  });
+  for (const relative of ['audit/site-audit.mjs', 'audit/audit-core.mjs', 'roadmap/issues.mjs', 'roadmap/issue-core.mjs', 'roadmap/task-map.json']) {
+    const destination = path.join(root, 'scripts', relative);
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.copyFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), destination);
+  }
+  const adapter = path.join(root, 'fake-playwright.cjs'), trace = path.join(root, 'trace.jsonl');
+  fs.writeFileSync(adapter, String.raw`
+    const fs = require('node:fs'), vm = require('node:vm');
+    const { EventEmitter } = require('node:events');
+    const log = (event, detail) => fs.appendFileSync(process.env.ALO_CLI_TRACE, JSON.stringify({ event, detail }) + '\n');
+    const probe = {
+      timing: { contentVisibleMs: 80, loaderDismissedMs: 100, usableEscapeMs: 90 },
+      status: () => ({ contentVisible: true, loaderStillCovering: false, usableEscape: true }),
+      inspect: () => ({ overflowX: false, smallTaps: [{ key: '#small', width: 32, height: 32 }], fixedOverlaps: [], coveredContent: [], minFontPx: 16 }),
+    };
+    class Page extends EventEmitter {
+      async goto(url) {
+        const request = { url: () => url, sizes: async () => ({ responseBodySize: 100, responseHeadersSize: 20 }) };
+        this.emit('request', request);
+        this.emit('response', { request: () => request, url: () => url, status: () => 200, finished: async () => null, body: async () => Buffer.alloc(1000) });
+      }
+      async evaluate(fn, arg) {
+        return vm.runInNewContext('(' + fn.toString() + ')(arg)', {
+          arg, window: { __aloAudit: probe },
+          document: { getElementById: () => ({ scrollIntoView() {} }) },
+          performance: { now: () => 10000, getEntriesByType: () => [] },
+        });
+      }
+      async waitForFunction(fn) { if (!(await this.evaluate(fn))) throw new Error('Mock readiness failed'); }
+      async waitForTimeout() {}
+      async route() {}
+      async screenshot() { log('screenshot'); }
+      locator() { return { evaluateAll: async (fn) => fn([{ id: 'hero' }]), isVisible: async () => false }; }
+    }
+    exports.chromium = { async launch() {
+      log('launch');
+      return {
+        async newContext(options) {
+          log('context', options);
+          return {
+            async addInitScript() {},
+            async newPage() { if (process.env.ALO_CLI_FAULT) throw new Error('Injected page creation failure'); return new Page(); },
+            async newCDPSession() { return { send: async () => {} }; },
+            async close() { log('context-close'); },
+          };
+        },
+        async close() { log('browser-close'); },
+      };
+    } };
+  `);
+  return {
+    root,
+    run(relative, args = [], environment = {}) {
+      const result = spawnSync(process.execPath, [path.join(root, 'scripts', relative), ...args], {
+        cwd: root, encoding: 'utf8', timeout: 10_000, windowsHide: true,
+        env: { ...process.env, PLAYWRIGHT_PACKAGE_PATH: adapter, ALO_CLI_TRACE: trace, ALO_CLI_FAULT: '', ...environment },
+      });
+      assert.ifError(result.error);
+      assert.equal(result.signal, null, result.stderr);
+      return result;
+    },
+    report(name) { return JSON.parse(fs.readFileSync(path.join(root, 'audit-output', name, 'report.json'), 'utf8')); },
+    trace() { return fs.readFileSync(trace, 'utf8').trim().split('\n').map((line) => JSON.parse(line)); },
+  };
+}
+
+test('audit entry point completes startup and writes measured reports with report-only/enforcing exits', (t) => {
+  const fixture = cliFixture(t);
+  for (const enforce of [false, true]) {
+    const name = enforce ? 'enforcing' : 'report-only';
+    const result = fixture.run('audit/site-audit.mjs', ['--devices', 'iphone-se', '--out', `audit-output/${name}`, ...(enforce ? ['--enforce'] : [])]);
+    assert.equal(result.status, enforce ? 1 : 0, result.stdout + result.stderr);
+    const report = fixture.report(name), device = report.devices['iphone-se'];
+    assert.deepEqual(report.operationalErrors, []);
+    assert.equal(report.mode, name);
+    assert.equal(report.recovery.usableEscape, true);
+    assert.equal(device.contentReadyMs, 100);
+    assert.equal(device.initialNetwork.encodedBodyBytes, 100);
+    assert.equal(device.initialNetwork.transferBytes, 120);
+    assert.equal(device.initialNetwork.decodedBodyBytes, 1000);
+    assert.equal(report.counts.budgetConditionFailures, 1);
+    assert.equal(report.counts.uniqueSmallTapTargets, 1);
+    assert.match(fs.readFileSync(path.join(fixture.root, 'audit-output', name, 'report.md'), 'utf8'), /1 failed budget conditions/);
+  }
+  const events = fixture.trace();
+  assert.equal(events.filter(({ event }) => event === 'context-close').length, 4);
+  assert.equal(events.filter(({ event }) => event === 'browser-close').length, 2);
+  assert.deepEqual(events.find(({ event }) => event === 'context').detail.viewport, { width: 375, height: 667 });
+});
+
+test('audit entry point records operational failures and closes its context and browser', (t) => {
+  const fixture = cliFixture(t);
+  const result = fixture.run('audit/site-audit.mjs', ['--devices', 'iphone-se', '--skip-recovery', '--out', 'audit-output/failure'], { ALO_CLI_FAULT: 'page' });
+  assert.equal(result.status, 2, result.stdout + result.stderr);
+  assert.deepEqual(fixture.report('failure').operationalErrors, ['iphone-se: Injected page creation failure']);
+  assert.deepEqual(fixture.trace().map(({ event }) => event), ['launch', 'context', 'context-close', 'browser-close']);
+});
+
+test('roadmap entry point starts offline in dry-run mode and rejects offline apply before GitHub access', (t) => {
+  const fixture = cliFixture(t);
+  fs.mkdirSync(path.join(fixture.root, 'docs'));
+  fs.writeFileSync(path.join(fixture.root, 'docs', 'ROADMAP.md'), '### M1 Mobile controls\n');
+  const dryRun = fixture.run('roadmap/issues.mjs', ['--offline']);
+  assert.equal(dryRun.status, 0, dryRun.stdout + dryRun.stderr);
+  assert.match(dryRun.stdout, /DRY RUN; no writes.*UNVERIFIED/);
+  assert.match(dryRun.stdout, /<!-- alo-roadmap:M1 -->/);
+  const apply = fixture.run('roadmap/issues.mjs', ['--offline', '--only', 'M1', '--apply']);
+  assert.equal(apply.status, 2);
+  assert.match(apply.stderr, /Apply requires fresh GitHub reads/);
+});

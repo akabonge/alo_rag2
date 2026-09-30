@@ -47,7 +47,7 @@ flowchart LR
 
 1. [`content.js`](../src/content.js) defines profile facts, places, experience, projects, skills, community work, tour narration and endpoint URLs.
 2. [`page.html`](../src/page.html) supplies HTML, CSS, accessible controls, metadata and the dependency import map. [`wrap.py`](../test/wrap.py) wraps it into the served `index.html`.
-3. [`main.js`](../src/main.js) connects those DOM controls to the scene, camera, drawers, question panel and visitor stars. Lenis and GSAP coordinate scrolling and motion.
+3. [`main.js`](../src/main.js) connects those DOM controls to the scene, camera, native dialogs, question panel and visitor stars. Lenis and GSAP coordinate scrolling and motion. [`boot.js`](../src/boot.js) supplies a dependency-free loading escape, adaptive controls and viewport measurements; [`network.js`](../src/network.js) bounds client requests and forwards cancellation. [`atmosphere.js`](../src/atmosphere.js) computes the artistic local-clock lighting cycle and places labels around reserved reading surfaces. The compact dock also responds to enlarged root text, not only viewport width.
 4. Three.js renders the world using WebGL2. Its add-ons provide bloom and other postprocessing passes plus thick line geometry. The map/flag helpers supply custom geographical and visual data.
 5. [`make_text.mjs`](../test/make_text.mjs) creates the readable text page from the same facts. This provides an alternative to navigating the 3D scene. Reduced-motion preferences also affect interaction behavior.
 
@@ -88,7 +88,7 @@ sequenceDiagram
 
 [`ask.js`](../src/ask.js) builds chunks from the portfolio facts. Tokenization, a small stemmer, stop words and hand-written synonyms feed BM25-style ranking with a source-title boost. A candidate must match at least half the question's term groups and more groups than the count of terms unknown to the corpus. This is why a single shared word such as “white” should not turn a White House question into a White Nile answer.
 
-The browser retrieves up to four chunks, extracts two relevant sentences from the best chunk and navigates to its scene station. The server independently retrieves up to three chunks and caps each source text at 700 characters. Its prompt asks Claude for two or three sentences with numbered citations, using only those sources. Output is capped at 220 tokens. Retrieval gating and prompt instructions reduce unsupported answers; generated claims and citations are not independently verified by another model or validator.
+The browser retrieves up to four chunks and immediately shows two relevant sentences from the best chunk. On pointer devices it navigates to that scene station; touch input stays in place so the keyboard interaction is stable. The server independently retrieves up to three chunks and caps each source text at 700 characters. Its prompt asks Claude for two or three sentences with numbered citations, using only those sources. Output is capped at 220 tokens. Retrieval gating and prompt instructions reduce unsupported answers; generated claims and citations are not independently verified by another model or validator.
 
 The default model identifier in code is `claude-haiku-4-5-20251001`, overridable through `ANTHROPIC_MODEL`. Calls use native `fetch`, not an Anthropic SDK. There is no vector database or embedding service in this portfolio's retrieval path. Technologies such as ChromaDB and Ollama mentioned in project descriptions belong to those projects.
 
@@ -124,7 +124,7 @@ flowchart TD
 
 The shared list retains at most 300 notes. The UI lists up to 40; local-only fallback storage retains up to 50. At initialization the browser tries the server, then a host-provided Claude database, then `localStorage`. Local notes stay in that browser and are not shared with other visitors. A missing Redis configuration returns 503; upstream storage errors return 502.
 
-An optional admin key authorizes deletion by timestamp. The current delete operation reads and rewrites the list; concurrent writes can race with moderation. The word filter is a basic automated filter, not a complete moderation system.
+An optional admin key authorizes deletion by timestamp. Moderation removes exact stored records with `LREM`, preserving unrelated concurrent additions. Confirmed writes remain successful even if the following list refresh fails. Unknown write outcomes still need idempotent submission identifiers before automatic retries are safe. The word filter is a basic automated filter, not a complete moderation system.
 
 ## 5. Technology and package inventory
 
@@ -153,6 +153,7 @@ Versions below are the repository's declared versions, not claims about the late
 | SVG, JPEG, PDF | Static assets | Favicon, photos/share card and downloadable resume |
 | Git/GitHub | Repository workflow | Source history and hosting integration input |
 | Mermaid | GitHub Markdown rendering | Architecture diagrams in these docs; no website runtime dependency |
+| Playwright | 1.62.1 development dependency | Local mocked browser regression checks; not shipped to visitors |
 
 [`package.json`](../package.json) declares only three runtime packages. The browser uses the versions in the import map, so keep that map and the manifest synchronized when upgrading. Custom `flags.js`, `landmask.js`, `usmap.js` and `ask.js` are local modules, not npm packages. The optional `window.claude` capabilities are host integrations, not installed dependencies.
 
@@ -162,7 +163,9 @@ Versions below are the repository's declared versions, not claims about the late
 flowchart LR
     Edit[Edit content and templates] --> Generate[Run page generators when needed]
     Generate --> Review[Review generated HTML and source changes]
-    Review --> Commit[Commit and push main]
+    Review --> Tests[Node and browser regression]
+    Tests --> PR[Push branch and review pull request]
+    PR --> Commit[Merge reviewed change to main]
     Commit --> Integration[Connected Vercel Git integration]
     Integration --> Static[Serve committed src files]
     Integration --> Functions[Deploy API functions]
@@ -180,12 +183,12 @@ flowchart LR
 
 Secrets belong in the server environment, never in `src/`. Questions travel to the Ask function and, on an uncached model request, to Anthropic with selected public portfolio facts. Guestbook submissions travel to the function and Redis. IP-derived Redis counter keys are used for submission limiting.
 
-The output directory is `src`. Ask has a configured maximum duration of 20 seconds and guestbook 10 seconds. The repository does not pin the Node engine or include a package lockfile. Domain, DNS, actual environment values, analytics enablement and deployment success are hosting-account state, not established by these files.
+The output directory is `src`. Ask has a configured maximum duration of 20 seconds and guestbook 10 seconds; internal upstream/storage deadlines are 12 and 7 seconds respectively. `package-lock.json` records dependency resolution, and the quality workflow tests with Node 24. The deployment Node engine is not pinned in the manifest. Domain, DNS, actual environment values, analytics enablement and deployment success are hosting-account state, not established by these files.
 
 ## 7. Operating boundaries and future improvements
 
 The site can deliver its static content independently of model and guestbook availability. Its browser still depends on external module/font delivery for the full visual experience. The text page provides a simpler reading path.
 
-The current implementation has no distributed answer cache and no durable Ask rate limiter. A scheduled GitHub Actions smoke check (`.github/workflows/uptime.yml`) verifies the live pages, both APIs and the demos every 6 hours. It also has no model citation verifier. If traffic grows, useful next steps are shared rate limiting/caching, API error-path coverage, and atomic guestbook moderation. These are future options, not infrastructure already deployed.
+The current implementation has no distributed answer cache, durable Ask rate limiter or model citation verifier. A scheduled GitHub Actions smoke check (`.github/workflows/uptime.yml`) verifies the live pages, both APIs and the demos every 6 hours. The separate quality workflow runs generated-page, mocked API/client and browser regression checks on pull requests and main. Shared abuse controls, idempotent submission retries and measured performance work are tracked in [QUALITY-PLAN.md](QUALITY-PLAN.md).
 
 Keep the facts and generated pages synchronized, review model/provider usage in their dashboards, and avoid treating per-instance limits as a global cost ceiling. This architecture deliberately keeps public content in Git and credentials in the server runtime.

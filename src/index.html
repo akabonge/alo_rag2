@@ -31,9 +31,9 @@
   --gold: #e8b54a;       /* Alo brand accent */
   --signal: #6fe3d6;     /* data / interactive cue */
   --text: #eef1f8;
-  --muted: #9aa5c2;
+  --muted: #b6bfd4;
   --line: rgba(154, 165, 194, 0.18);
-  --glass: rgba(10, 16, 42, 0.86);
+  --glass: rgba(10, 16, 32, 0.96);
   --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -50,8 +50,9 @@ h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-
 .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 
 /* ---------- WebGL layer ---------- */
-#world { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; touch-action: pan-y; }
+#world { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; touch-action: pan-y pinch-zoom; }
 .no-webgl #world { display: none; }
+.no-webgl [data-flight] { display: none; }
 .no-webgl body, body.no-webgl { background: radial-gradient(120% 80% at 70% 0%, #1a2552 0%, var(--night) 60%); }
 
 /* ---------- Loader ---------- */
@@ -171,8 +172,8 @@ main { position: relative; z-index: 10; pointer-events: none; }
 #ask-toggle kbd { font: inherit; opacity: 0.6; }
 #ask { position: fixed; left: clamp(16px, 3vw, 36px); bottom: calc(env(safe-area-inset-bottom, 0px) + 70px); z-index: 30; width: min(400px, calc(100% - 32px)); background: rgba(8, 12, 30, 0.9); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: grid; gap: 12px; }
 #ask form { display: flex; gap: 8px; }
-#ask input { flex: 1; min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 10px; color: var(--text); font: 400 0.92rem/1 var(--f-body); padding: 11px 12px; }
-#ask input:focus { outline: none; border-color: var(--signal); }
+#ask-input { flex: 1; min-width: 0; background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 10px; color: var(--text); font: 400 0.92rem/1 var(--f-body); padding: 11px 12px; }
+#ask-input:focus { outline: none; border-color: var(--signal); }
 .ask-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .ask-note { font: 400 0.68rem/1.4 var(--f-mono); color: var(--muted); margin: 0; }
 .ask-a { margin: 0; color: var(--text); font-size: 0.92rem; min-height: 1.4em; }
@@ -256,6 +257,7 @@ main { position: relative; z-index: 10; pointer-events: none; }
 .panel.compact h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); }
 
 @media (max-width: 720px) {
+  .hint { display: none; }
   .km { display: none; }
   .sky-chip .sc-date { display: none; }
   .sky-chip { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 62px); left: 16px; }
@@ -287,7 +289,7 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
 @media (max-width: 1180px) { .km { display: none; } }
 @media (max-width: 900px) { .hud-actions .chip-btn.opt { display: none; } }
 @media (max-width: 720px) { .hud-top { padding-bottom: 44px; } .sky-chip { z-index: 21; } }
-@media (max-width: 380px) { .hud-top { gap: 8px; } .hud-actions { gap: 4px; } .hud-actions .chip-btn { padding: 10px 9px; font-size: 0.72rem; } }
+@media (max-width: 380px) { .hud-top { gap: 8px; } .hud-actions { gap: 4px; } .hud-actions .chip-btn { padding: 10px 9px; font-size: 0.75rem; } }
 .station .panel { scroll-margin-top: 110px; }
 #ask { background: rgba(8, 12, 30, 0.97); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); max-height: calc(100dvh - 160px); overflow-y: auto; box-shadow: 0 18px 60px rgba(0,0,0,0.55); }
 #ask-toggle { box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
@@ -306,6 +308,140 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
 .how-src { margin: 8px 0 0; font: 400 0.68rem/1.4 var(--f-mono); } .how-src a { color: var(--signal); }
 .text-link { position: fixed; left: -999px; top: 8px; z-index: 99; padding: 8px 12px; background: #fff; color: #000; border-radius: 8px; }
 .text-link:focus { left: 8px; }
+/* Reachable controls and compact reading on phones, including landscape. */
+.chip-btn, .cta, .strength, .ask-chips button { min-height: 44px; justify-content: center; }
+.brand { min-height: 44px; }
+.voice-toggle { min-height: 44px; line-height: 1.4; font-size: 0.75rem; }
+.how summary { min-height: 44px; display: flex; align-items: center; }
+h2 .inline-link { min-height: 44px; display: inline-block; vertical-align: baseline; }
+#lite-offer button { min-width: 44px; min-height: 44px; }
+#lite-offer a { display: inline-flex; align-items: center; min-height: 44px; }
+.hint a { pointer-events: auto; }
+.rail { gap: 2px; }
+.rail button { min-height: 44px; min-width: 44px; }
+.panel, .hero-copy, .welcome-card, #drawer-body { overflow-wrap: anywhere; }
+.list-btn { grid-template-columns: minmax(0, 1fr) auto; }
+#ask > *, #ask form, #ask-out, #gb-form { min-width: 0; }
+#ask-input, #gb-form input { font-size: 16px; min-width: 0; width: 100%; }
+#ask form { flex-wrap: wrap; }
+#ask-input { flex: 1 1 160px; }
+#ask .ask-a, #ask .ask-src, .gb-list { overflow-wrap: anywhere; }
+#ask-close, #gb-close { min-width: 44px; flex: none; }
+#ask { max-height: calc(var(--visible-height, 100dvh) - 100px); bottom: calc(var(--keyboard-inset, 0px) + env(safe-area-inset-bottom, 0px) + 70px); }
+.modal-open { overflow: hidden; }
+dialog { color: var(--text); font: inherit; margin: 0; }
+dialog:not([open]) { display: none !important; }
+dialog::backdrop { background: rgba(3, 5, 12, 0.7); }
+#drawer { left: auto; top: var(--visible-top, 0px); max-width: 100%; max-height: var(--visible-height, 100dvh); height: var(--visible-height, 100dvh); overscroll-behavior: contain; }
+#guestbook, #flight-end { top: calc(var(--visible-top, 0px) + var(--visible-height, 100dvh) / 2); max-height: calc(var(--visible-height, 100dvh) - 32px); overscroll-behavior: contain; }
+.section-menu { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 18px); z-index: 35; display: none; }
+.section-menu summary { list-style: none; }
+.section-menu summary::-webkit-details-marker { display: none; }
+.section-menu summary::after { content: " +"; }
+.section-menu[open] summary::after { content: " −"; }
+.section-menu nav { position: absolute; bottom: 54px; right: 0; width: min(340px, calc(100vw - 32px)); max-height: calc(100dvh - 152px); overflow-y: auto; padding: 12px; background: #0c1330; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 12px 48px #0009; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.section-menu a { padding: 11px 10px; min-height: 44px; font-size: 0.9rem; text-decoration: none; border-radius: 8px; }
+.section-menu a:hover, .section-menu a[aria-current="location"] { background: #e8b54a1a; color: var(--gold); }
+.loader-link { color: var(--signal); padding: 12px; }
+#boot-fallback { position: relative; z-index: 21; margin: 112px 16px 16px; padding: 16px; border: 1px solid var(--gold); border-radius: 12px; background: var(--deep); }
+#boot-fallback a { color: var(--signal); }
+.station { scroll-margin-top: 100px; }
+@media (max-width: 900px), (max-height: 500px) {
+  .section-menu { display: block; }
+  .rail { display: none; }
+  .hint { bottom: calc(env(safe-area-inset-bottom, 0px) + 80px); font-size: 0.65rem; }
+  .hud-actions .chip-btn.opt { display: none; }
+}
+@media (max-width: 720px) {
+  .station, .station[data-side="right"], .hero, .station.welcome { min-height: 100svh; align-items: center; padding: 120px 16px 108px; }
+  .station.welcome, .hero { align-items: flex-start; }
+  .skills-station .panel { position: static; }
+  .welcome-card #portrait-badge { width: clamp(140px, 42vw, 200px); }
+  .welcome-card { gap: 12px; }
+  .oli { font-size: clamp(2.7rem, 11vw, 4.5rem); }
+  #drawer { padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(env(safe-area-inset-bottom, 0px) + 24px); }
+  #ask-toggle { left: 16px; }
+  #tour, #flight-hud { bottom: calc(env(safe-area-inset-bottom, 0px) + 74px); max-height: calc(100dvh - 100px); overflow-y: auto; }
+  .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 380px) {
+  .brand { gap: 6px; font-size: 0.85rem; }
+  .hud-top { padding-inline: 12px; }
+  .hud-actions .chip-btn { letter-spacing: 0; padding-inline: 8px; }
+  .welcome-card .cta { font-size: 0.85rem; padding-inline: 13px; }
+}
+@media (max-height: 500px) {
+  .sky-chip, .hint { display: none; }
+  #ask { bottom: calc(var(--keyboard-inset, 0px) + 12px); max-height: calc(var(--visible-height, 100dvh) - 24px); z-index: 36; }
+}
+/* One control zone; reading surfaces stay legible in every sky palette. */
+.hero-copy { padding: clamp(20px, 3vw, 36px); background: #0a1020f5; border: 1px solid #b6bfd433; border-radius: 22px; box-shadow: 0 18px 70px #0003; }
+.welcome-card { padding: clamp(20px, 3vw, 36px); background: #0a1020f5; border: 1px solid #b6bfd433; border-radius: 22px; box-shadow: 0 18px 70px #0003; }
+.welcome-card { min-width: 0; width: min(100%, 34rem); }
+.welcome-card > *, .panel > *, .hero-copy > * { min-width: 0; max-width: 100%; }
+.section-menu a { overflow-wrap: anywhere; white-space: normal; min-width: 0; }
+.hero p, .panel p { line-height: 1.65; }
+.eyebrow, .chip-btn.mini, .how summary, .how-src, .stat-row span, .list-btn .mono,
+.tags span, .proof figcaption, .greet span, .fh-row, .foot, .ask-chips button, .skill-group summary span { font-size: 0.75rem; }
+.now ul, .how, .list-btn small { font-size: 0.875rem; line-height: 1.55; }
+.brand, .chip-btn, .cta { touch-action: manipulation; }
+#experience-controls { display: none; }
+.hud-actions #ask-toggle { position: static; box-shadow: none; }
+.rail button span { padding: 9px 10px; background: #0a1020f5; border: 1px solid var(--line); border-radius: 8px; }
+.ask-short { display: none; }
+.sky-chip .sky-phase { color: var(--gold); margin-left: 8px; }
+.star-label { background: #060a17; font-size: 0.875rem; transition: none; }
+#star-labels { z-index: 9; }
+#skill-cats { display: grid; gap: 6px; }
+.skill-group { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.skill-group summary { cursor: pointer; min-height: 44px; padding: 10px; font-size: 0.875rem; color: var(--text); }
+.skill-group summary span { color: var(--gold); padding: 0 4px; background: none; border: 0; }
+.skill-group > div { padding: 0 8px 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.skill-group .chip-btn { font-family: var(--f-body); font-size: 0.875rem; letter-spacing: 0; }
+.ask-note, .portrait-btn::after { font-size: 0.75rem; }
+.section-menu nav [data-motion] { grid-column: 1 / -1; min-height: 44px; }
+.motion-paused *, .motion-paused *::before, .motion-paused *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #flight-hud:not([hidden])) #lite-offer { display: none; }
+#skill-card { max-height: calc(var(--visible-height, 100dvh) - 150px); overflow-y: auto; }
+@media (max-width: 1800px) { .km { display: none; } }
+.controls-compact {
+  .rail, .hud-actions #sound, .hud-actions .opt { display: none; }
+  #experience-controls { position: fixed; display: grid; grid-template-columns: repeat(auto-fit, minmax(max(64px, 4.25rem), 1fr)); gap: 4px; bottom: 0; left: 0; right: 0; z-index: 35; padding: 8px max(12px, env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid #b6bfd433; background: #080e20fa; box-shadow: 0 -8px 28px #0003; }
+  #experience-controls .chip-btn { width: 100%; min-width: 0; min-height: 48px; padding: 8px 4px; font: 500 0.8125rem/1.3 var(--f-body); letter-spacing: 0; border-radius: 12px; gap: 5px; }
+  #experience-controls #ask-toggle { position: static; box-shadow: none; }
+  .ask-short { display: inline; } .ask-long, #ask-toggle kbd { display: none; }
+  .section-menu { display: block; position: static; min-width: 0; }
+  .section-menu summary::after { content: ""; }
+  .section-menu nav { bottom: calc(var(--dock-h, 64px) + 8px); right: 12px; width: min(420px, calc(100vw - 24px)); max-height: calc(var(--visible-height, 100dvh) - var(--dock-h, 64px) - 96px); }
+  .section-menu[open] summary { border-color: var(--signal); color: var(--signal); }
+  .hint { display: none; }
+  #ask { left: 8px; right: 8px; width: auto; bottom: calc(var(--keyboard-inset, 0px) + var(--dock-h, 64px) + 8px); max-height: calc(var(--visible-height, 100dvh) - var(--dock-h, 64px) - 24px); border-radius: 20px; }
+  #skill-card, #tour, #flight-hud, #lite-offer { bottom: calc(var(--dock-h, 64px) + 8px); }
+  #skill-card { z-index: 31; }
+  .skills-station .panel { position: static; }
+  .station, .station[data-side="right"], .hero, .station.welcome { padding-block: max(110px, calc(var(--hud-h, 90px) + 12px)) calc(var(--dock-h, 64px) + 40px); }
+  .hud-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding-bottom: 12px; gap: 8px; }
+  .hud-actions { grid-column: 2; grid-row: 1; }
+  .brand { min-width: 0; white-space: normal; }
+  .km { display: none; }
+  .sky-chip { position: static; grid-column: 1 / -1; grid-row: 2; font-size: 0.75rem; white-space: normal; line-height: 1.4; letter-spacing: 0; }
+  .sky-chip .sc-date { display: none; }
+  &.keyboard-open #experience-controls { visibility: hidden; }
+  &.keyboard-open #ask { bottom: calc(var(--keyboard-inset, 0px) + 8px); max-height: calc(var(--visible-height, 100dvh) - 16px); }
+}
+@media (max-width: 720px) {
+  .oli, .nowrap, h2 .inline-link { white-space: normal; overflow-wrap: anywhere; }
+  .hero-copy { padding: 22px 18px; width: 100%; }
+  .hero h1 { font-size: clamp(2.25rem, 10vw, 3.6rem); }
+  .hero p, .panel p, .now ul { font-size: 1rem; }
+  .sky-chip { font-size: 0.75rem; }
+  #skill-card { left: 12px; right: 12px; width: auto; max-height: min(40svh, calc(var(--visible-height, 100dvh) - 180px)); }
+}
+@media (max-height: 600px) {
+  .sky-chip, .controls-compact .sky-chip { display: none; }
+  #ask, .controls-compact #ask { bottom: calc(var(--keyboard-inset, 0px) + 8px); max-height: calc(var(--visible-height, 100dvh) - 16px); z-index: 36; }
+  .station, .station[data-side="right"], .hero, .station.welcome { padding-top: 100px; }
+}
 </style>
 
 </head>
@@ -318,6 +454,7 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
     <div class="loader-count" id="loader-count">00</div>
     <div class="loader-bar"><i id="loader-bar"></i></div>
     <div class="boot" id="boot" aria-hidden="true"></div>
+    <a class="loader-link" href="text.html">Read the fast text version</a>
   </div>
 </div>
 
@@ -327,11 +464,32 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
   <div class="sky-chip" id="sky-chip" aria-live="off"></div>
   <div class="hud-actions">
     <button class="chip-btn opt" type="button" data-tour>Tour</button>
+    <button class="chip-btn opt" type="button" data-motion aria-pressed="false">Pause motion</button>
     <button class="chip-btn opt" type="button" data-guestbook title="Leave a note that becomes a star in the sky">✦ Leave a star</button>
-    <button class="chip-btn" id="sound" type="button" aria-pressed="false"><span class="eq"><i></i><i></i><i></i></span>Sound</button>
+    <button class="chip-btn" id="sound" data-sound type="button" aria-pressed="false" aria-label="Play original ambient score"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>Sound</button>
     <a class="chip-btn" href="https://aialo.io" target="_blank" rel="noopener">2D site ↗</a>
   </div>
 </header>
+
+<nav id="experience-controls" aria-label="Portfolio controls">
+<button class="chip-btn" id="ask-toggle" type="button" aria-expanded="false" aria-controls="ask"><span class="ask-long">Ask about Alo</span><span class="ask-short">Ask Alo</span><kbd>/</kbd></button>
+<details class="section-menu" id="section-menu">
+  <summary class="chip-btn">Explore</summary>
+  <nav aria-label="Explore the portfolio">
+    <a href="#welcome" data-jump="welcome">Welcome</a><a href="#hero" data-jump="hero">About Alo</a>
+    <a href="#journey" data-jump="journey">Journey</a><a href="#experience" data-jump="experience">Experience</a>
+    <a href="#projects" data-jump="projects">Projects</a><a href="#demos" data-jump="demos">Live demos</a>
+    <a href="#skills" data-jump="skills">Skills</a><a href="#community" data-jump="community">Community</a>
+    <a href="#stars" data-jump="stars">Visitors’ sky</a><a href="#contact" data-jump="contact">Contact</a>
+    <a href="proofmode.html">ProofMode case study</a><a href="text.html">Fast text version</a>
+    <button class="chip-btn" type="button" data-motion aria-pressed="false">Pause motion</button>
+  </nav>
+</details>
+<button class="chip-btn" type="button" data-tour>Tour</button>
+<button class="chip-btn" id="dock-sound" data-sound type="button" aria-pressed="false" aria-label="Play original ambient score"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>Sound</button>
+</nav>
+<p id="boot-fallback" hidden role="status">The 3D experience could not finish loading. <a href="text.html">Read the complete portfolio in the fast text version</a>.</p>
+<noscript><style>#loader { display: none; }</style><p style="position:relative;z-index:21;margin:112px 16px 16px">JavaScript is off. <a href="text.html">Read the complete portfolio</a>.</p></noscript>
 
 <nav aria-label="Stations"><ul class="rail" id="rail"></ul></nav>
 <div class="hint" id="hint">Scroll to travel · Drag to look · Click glowing objects</div>
@@ -419,7 +577,7 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
     <div class="panel compact">
       <span class="eyebrow">Skills · click any star</span>
       <h2>What I bring.</h2>
-      <p>Every star is a skill. Click one to see where I’ve used it; hover to see what it connects to.</p>
+      <p>Every star is a skill. Select a star to explore its connections, or browse a category below to see where I’ve used each skill.</p>
       <div class="tags" id="skill-cats"></div>
       <span class="eyebrow">CliftonStrengths · Top 5</span>
       <div class="strength-row" id="strength-list"></div>
@@ -466,12 +624,11 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
   </section>
 </main>
 
-<button class="chip-btn" id="ask-toggle" type="button" aria-expanded="false" aria-controls="ask">Ask about Alo <kbd>/</kbd></button>
-<div id="ask" hidden role="dialog" aria-label="Ask about Alo">
-  <div class="ask-head"><span class="eyebrow">Ask the world</span><button class="chip-btn" id="ask-close" type="button" style="padding:6px 10px">✕</button></div>
+<div id="ask" hidden role="dialog" aria-label="Ask about Alo" data-lenis-prevent>
+  <div class="ask-head"><span class="eyebrow">Ask the world</span><button class="chip-btn" id="ask-close" type="button" aria-label="Close Ask">✕</button></div>
   <form id="ask-form"><input id="ask-input" type="text" autocomplete="off" placeholder="What did he build at SyncData?" aria-label="Your question"><button class="chip-btn mic" id="ask-mic" type="button" aria-label="Ask with your voice" hidden>Speak</button><button class="cta" type="submit">Ask</button></form>
   <label class="voice-toggle"><input type="checkbox" id="ask-voice"> Read answers aloud</label>
-  <div id="ask-out"><div class="ask-chips">
+  <div id="ask-out" aria-live="polite" aria-atomic="true"><div class="ask-chips">
     <button type="button" data-q="Where is he from?">Where is he from?</button>
     <button type="button" data-q="What is ProofMode?">What is ProofMode?</button>
     <button type="button" data-q="What did he build at SyncData?">SyncData work</button>
@@ -500,7 +657,7 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
       <li><b>Search runs on your device.</b> BM25 keyword ranking over this site’s own content (about 57 sections). Instant, free, and it flies the camera to the best source.</li>
       <li><b>Grounding check.</b> A section must match at least half of your question’s key-word groups and enough terms known to the site, so one stray word (“white” in “White House”) can’t pull in the wrong answer.</li>
       <li><b>Claude writes the answer.</b> Your question goes to a Vercel function, which independently retrieves up to 3 sections and calls Anthropic’s Claude API. The prompt asks it to use those sources, cite them like [1], and acknowledge missing information.</li>
-      <li><b>Cost and abuse controls.</b> The browser caches answers for the tab session. Each server instance caches answers for up to 24 hours and allows 8 questions per IP per minute. Replies are capped at 220 tokens. The API key stays on the server.</li>
+      <li><b>Cost and abuse controls.</b> The browser caches answers for the tab session. Each warm server instance caches answers for up to 24 hours and applies a best-effort limit of 8 questions per IP per minute; this is not a limit shared across all instances. Replies are capped at 220 tokens. The API key stays on the server.</li>
       <li><b>Fallback.</b> If AI generation is unavailable, you still get matching sentences extracted from the source. Generated answers can make mistakes; check their cited sources.</li>
     </ol>
     <p class="how-src">Code: <a href="https://github.com/akabonge/alo_rag2" target="_blank" rel="noopener">github.com/akabonge/alo_rag2</a> · <a href="https://github.com/akabonge/alo_rag2/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">architecture</a></p>
@@ -515,22 +672,22 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
   <div class="tour-actions"><label class="voice-toggle"><input type="checkbox" id="tour-voice" checked> Narration (my voice)</label><button class="chip-btn" type="button" id="tour-skip">End tour</button></div>
 </div>
 
-<div id="flight-hud" hidden role="status">
+<div id="flight-hud" hidden aria-label="Flight progress">
   <div class="fh-row"><span class="eyebrow">Entebbe, Uganda → Fredericksburg, VA · 2022</span></div>
   <div class="fh-clock"><b id="fh-hours">00</b><span>of 23 hours in the air</span></div>
   <div class="fh-row"><span id="fh-km">0 km</span><span id="fh-dreams">Dreams collected 0 / 5</span></div>
   <p class="fh-hint">Click the glowing dreams along the route before you land.</p>
   <button class="chip-btn" type="button" id="fh-skip">Skip</button>
 </div>
-<div id="flight-end" hidden role="dialog" aria-labelledby="fe-title">
+<dialog id="flight-end" aria-labelledby="fe-title" data-lenis-prevent>
   <span class="eyebrow">Touchdown · Fall 2022</span>
   <h3 id="fe-title">23 hours. 11,619 km. A new life.</h3>
   <p id="fe-text"></p>
   <div class="cta-row"><button class="cta" type="button" id="fe-again">Fly again</button><button class="cta ghost" type="button" id="fe-close">Continue the journey</button></div>
-</div>
+</dialog>
 
-<div id="guestbook" hidden role="dialog" aria-labelledby="gb-title">
-  <div class="ask-head"><span class="eyebrow">Guestbook · leave a star</span><button class="chip-btn" type="button" id="gb-close" style="padding:6px 10px">✕</button></div>
+<dialog id="guestbook" aria-labelledby="gb-title" data-lenis-prevent>
+  <div class="ask-head"><span class="eyebrow">Guestbook · leave a star</span><button class="chip-btn" type="button" id="gb-close" aria-label="Close guestbook">✕</button></div>
   <h3 id="gb-title">Add your star to the sky</h3>
   <p class="gb-note">Your note becomes a star every visitor can hover. Please keep it kind. No links.</p>
   <form id="gb-form">
@@ -539,19 +696,19 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
     <input id="gb-msg" maxlength="90" placeholder="A short note for Alo" aria-label="A short note" required>
     <button class="cta" type="submit">Place my star</button>
   </form>
-  <p class="gb-status" id="gb-status"></p>
+  <p class="gb-status" id="gb-status" role="status"></p>
   <ul class="gb-list" id="gb-list"></ul>
-</div>
+</dialog>
 <div id="star-labels" aria-hidden="true"></div>
 <div id="skill-card" hidden role="status" aria-live="polite">
   <span class="eyebrow" id="sc-cat"></span><strong id="sc-name"></strong><p id="sc-text"></p>
   <div class="cta-row"><button class="cta" type="button" id="sc-open" data-open="">Details</button><button class="chip-btn" type="button" id="sc-clear">Show all</button></div>
 </div>
 <div id="scrim"></div>
-<aside id="drawer" aria-hidden="true" aria-labelledby="drawer-title" role="dialog">
+<dialog id="drawer" aria-labelledby="drawer-title" data-lenis-prevent>
   <button class="chip-btn close" id="drawer-close" type="button">Close ✕</button>
   <div id="drawer-body"></div>
-</aside>
+</dialog>
 
 <script type="importmap">
 { "imports": {
@@ -561,7 +718,8 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
   "lenis": "https://cdn.jsdelivr.net/npm/lenis@1.3.26/dist/lenis.mjs"
 } }
 </script>
-<script type="module" src="./main.js?v=16"></script>
+<script src="./boot.js?v=18"></script>
+<script id="portfolio-main" type="module" src="./main.js?v=18"></script>
 
 </body>
 </html>

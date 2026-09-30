@@ -27,4 +27,6 @@ The initial office installation created these labeled GitHub issues. They are as
 
 ## Latest baseline
 
+The active quality program is [QUALITY-PLAN.md](QUALITY-PLAN.md), with role-assigned issues #6–#11. The first responsive release and independent review evidence are in [handoffs/6-codex.md](handoffs/6-codex.md). PR #5 now includes the earlier diagram task and the first quality release.
+
 The portfolio already has grounded retrieval, current Flatter employment wording, a ProofMode case study, uptime checks and an accessible 2D-to-3D link. Preserve these while improving the office or site.
