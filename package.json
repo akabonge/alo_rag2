@@ -2,7 +2,7 @@
   "name": "ai-alo-3d",
   "version": "0.1.0",
   "private": true,
-  "description": "AI Alo 3D test site: standalone Three.js scroll journey",
+  "description": "AI Alo 3D portfolio: interactive Three.js journey with grounded AI answers",
   "scripts": {
     "dev": "npx --yes serve src -l 5173",
     "build:page": "python3 test/wrap.py && node test/make_text.mjs"

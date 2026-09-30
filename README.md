@@ -1,65 +1,72 @@
-# AI Alo 3D (test site)
+# AI Alo 3D Portfolio
 
-Standalone 3D version of aialo.io. Separate from the live 2D site.
+An interactive portfolio for Aloysious Kabonge: a 3D journey through his background, experience, projects, skills and community work, with source-grounded AI answers and a visitor guestbook.
 
-## Run it locally
-```bash
-cd ai-alo-3d
-npm run dev          # or: cd src && python3 -m http.server 5173
-# open http://localhost:5173
+**[Explore the architecture, diagrams and complete technology inventory →](docs/ARCHITECTURE.md)**
+
+The site uses plain JavaScript ES modules, Three.js, GSAP and Lenis. Vercel serves the static portfolio and two serverless API functions. The configured canonical URL is `https://3d.aialo.io/`; the companion 2D portfolio is `https://aialo.io/`.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    Content[Portfolio content] --> Browser[3D portfolio in browser]
+    Content --> Retrieval[Shared BM25 retrieval]
+    Browser --> Ask[Vercel Ask API]
+    Retrieval --> Ask
+    Ask --> Claude[Anthropic Claude]
+    Browser --> Guestbook[Vercel guestbook API]
+    Guestbook --> Redis[Upstash Redis]
 ```
-It must be served over http (not opened as a file) because it uses ES modules.
-Libraries load from jsDelivr via the import map in `src/index.html`, so no build step is needed.
 
-## Files
-- `src/index.html` – page, styles, import map (generated from `src/page.html` by `npm run build:page`)
-- `src/main.js` – the 3D world: scene, 7 stations, camera path, interactions, sound
-- `src/content.js` – all text, links, demo URLs and photo slots. Edit copy here.
-- `src/ask.js` – "Ask about Alo": on-device BM25 retrieval over the site content
-- `src/flags.js` – Uganda and US flags drawn in code
-- `src/assets/` – drop your photos here (see IMAGES in content.js)
+## Run locally
 
-## Deploy + turn on the real RAG answers (Vercel, free tier)
-1. Push this folder to a GitHub repo (or run `npx vercel` in it).
-2. On vercel.com: New Project → import the repo. `vercel.json` already serves `src/` and deploys `api/ask.js`.
-3. Project → Settings → Environment Variables: add `ANTHROPIC_API_KEY` (from console.anthropic.com). Optional: `ANTHROPIC_MODEL`.
-4. Redeploy (Deployments → ⋯ → Redeploy) so the function picks up the key. `ASK_ENDPOINT` in content.js is already '/api/ask'.
-5. Optional custom domain: Vercel → Domains → add `3d.aialo.io`, then add the CNAME it shows at your DNS provider.
+Requires Node.js/npm. Python 3 is used when regenerating the main page.
 
-How it works: the question goes to /api/ask → BM25 retrieval over the site content (src/ask.js) → top 4 chunks are
-sent to Claude Haiku with a "use only these sources, cite [n]" prompt → answer + sources come back.
-Cost is roughly $0.002 per question. The function rate-limits to 8 questions/minute per visitor.
-Without an endpoint, the claude.ai-hosted copy uses the viewer's own Claude, and anything else shows the best-matching sentences.
+```bash
+npm run dev
+# Open http://localhost:5173
+```
 
-## Guestbook (stars in the sky) — free
-1. Vercel → your project → Storage → Create → Upstash for Redis (free plan) → connect to the project. Vercel adds the env vars.
-2. Optional moderation key: add `GUESTBOOK_ADMIN_KEY` (any long random string). Remove a note with
-   `curl -X DELETE -H "x-admin-key: YOUR_KEY" "https://3d.aialo.io/api/guestbook?t=<note t value>"`
-3. Redeploy. Notes are cleaned (no links/HTML), filtered for abuse, capped at 90 characters, and limited to 3 per visitor per hour.
+The development command downloads/runs `serve` through npx. Browser libraries load from jsDelivr using the import map; there is no frontend bundler. Serve over HTTP because the browser uses ES modules. This static development server does not run the Vercel APIs: local retrieval still works, and the guestbook can use browser storage.
 
-## Luganda voice
-The "Hear it" button plays `src/assets/oli-otya.mp3` if it exists. Record yourself saying "Oli otya?" (phone voice memo,
-export as mp3) and drop it in. Without it, the browser reads a phonetic version.
+## Edit and generate pages
 
-## Share card
-`src/og.jpg` is the preview image. The og: tags in `src/page.html` point to https://3d.aialo.io/ — change them if your URL differs.
+- `src/content.js`: portfolio facts, experience, projects, media references and service endpoints.
+- `src/page.html`: main page template, styles and import map.
+- `src/main.js`: scene, interactions, audio, question UI and guestbook UI.
+- `src/ask.js`: shared retrieval, grounding filter and prompt.
+- `src/assets/`: photos, MP3 recordings, video and resume PDF.
+- `src/favicon.svg`: AK browser icon.
 
-## Hidden surprises
-Click the crane 5 times · type "habitat" · type "oli otya".
+After changing the page template or content, regenerate and commit the generated pages:
 
-## Sound
-The Sound button plays a generative score (no files): brown-noise bed, slow organ-like chords per station, bell "stars",
-and Kiganda drums + amadinda over the Uganda globe and during the flight.
-To add a music loop: put a file you have the rights to in `src/assets/` and set `SOUNDTRACK` in content.js.
+```bash
+npm run build:page
+```
 
-## Costs
-Free: Vercel Hobby, Upstash Redis free tier (10k commands/day), browser voice + speech input, all 3D/audio.
-Paid (usage only): Anthropic API for Ask about Alo, about $0.001-0.002 per new question; set a monthly cap in console.anthropic.com.
+The script uses `python3`. If your system exposes Python as `python`, run `python test/wrap.py` followed by `node test/make_text.mjs`. Use UTF-8 mode on Windows (`python -X utf8 test/wrap.py`) if your default encoding differs. The historical `test/` directory contains page generators, not an automated test suite.
 
-## Packages
-three 0.186.1 · gsap 3.15.0 · lenis 1.3.26
+## Deployment
 
-## Keeping it fresh
-- **Deep links**: every stop has its own link, e.g. `https://3d.aialo.io/#community`, `#stars`, `#experience`. The address bar follows the visitor.
-- **Text version**: `src/text.html` is generated from `content.js` by `npm run build:page` (fast, accessible, crawlable). Linked from the page head, the skip link and the no-3D fallback.
-- **Analytics**: turn on Vercel → project → Analytics. The script only loads on `*.vercel.app` and `aialo.io` hosts.
+1. Connect this GitHub repository to a Vercel project.
+2. Keep the repository root as the project root. `vercel.json` serves `src/`, disables the build command, and configures the API functions.
+3. Set `ANTHROPIC_API_KEY` for AI answers. Optionally set `ANTHROPIC_MODEL`; the code default is `claude-haiku-4-5-20251001`.
+4. Connect Upstash Redis and set its REST URL/token variables for the shared guestbook. See the [environment table](docs/ARCHITECTURE.md#6-configuration-and-deployment).
+5. Redeploy after changing environment variables. Configure your domain in Vercel and keep canonical/share URLs aligned.
+
+The repository describes the deployment configuration; production project settings and connected services must be checked in the hosting account. A push triggers deployment only when that Git integration is configured.
+
+## Answers, visitors and media
+
+Ask Alo searches the same portfolio corpus in the browser and on the server. The browser initially shows a relevant excerpt; the server sends up to three source chunks to Claude for a cited answer. Questions without adequate source matches are rejected. If the model endpoint fails, the local excerpt remains available.
+
+Guestbook notes become stars. Shared notes use Redis; the browser also contains compatibility fallbacks for a Claude-hosted environment and local-only storage. Recorded Luganda greetings and tour audio live in `src/assets/`; Web Audio generates ambient sound, and browser speech APIs support voice where available.
+
+Deep links jump to portfolio sections. `src/text.html` provides a readable text alternative. Open Graph metadata, `og.jpg`, `robots.txt`, and `sitemap.xml` support discovery and sharing. The page conditionally loads Vercel Analytics on the configured host families.
+
+## Packages and operating costs
+
+Declared versions: **Three.js 0.186.1**, **GSAP 3.15.0**, **Lenis 1.3.26**. The [architecture guide](docs/ARCHITECTURE.md#5-technology-and-package-inventory) explains each package, browser API, service and helper module.
+
+Hosting, Redis, analytics and model usage depend on your provider plan and traffic. No fixed cost or free-tier allowance is assumed here. The implementation limits model output and source size and caches answers to reduce repeated requests; those caches are not global across server instances.
