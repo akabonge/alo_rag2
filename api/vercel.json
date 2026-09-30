@@ -1,0 +1,12 @@
+{
+  "outputDirectory": "src",
+  "buildCommand": null,
+  "functions": {
+    "api/ask.js": {
+      "maxDuration": 20
+    },
+    "api/guestbook.js": {
+      "maxDuration": 10
+    }
+  }
+}
