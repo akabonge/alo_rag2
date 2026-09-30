@@ -38,6 +38,8 @@ The development command downloads/runs `serve` through npx. Browser libraries lo
 - `src/ask.js`: shared retrieval, grounding filter and prompt.
 - `src/assets/`: photos, MP3 recordings, video and resume PDF.
 - `src/favicon.svg`: AK browser icon.
+- `src/proofmode.html`: standalone ProofMode case study (hand-written, not generated).
+- `.github/workflows/uptime.yml`: scheduled smoke check of the live site, APIs and demos.
 
 After changing the page template or content, regenerate and commit the generated pages:
 
@@ -63,7 +65,11 @@ Ask Alo searches the same portfolio corpus in the browser and on the server. The
 
 Guestbook notes become stars. Shared notes use Redis; the browser also contains compatibility fallbacks for a Claude-hosted environment and local-only storage. Recorded Luganda greetings and tour audio live in `src/assets/`; Web Audio generates ambient sound, and browser speech APIs support voice where available.
 
-Deep links jump to portfolio sections. `src/text.html` provides a readable text alternative. Open Graph metadata, `og.jpg`, `robots.txt`, and `sitemap.xml` support discovery and sharing. The page conditionally loads Vercel Analytics on the configured host families.
+Deep links jump to portfolio sections. `src/text.html` provides a readable text alternative. Devices that report low memory or a data-saver setting, and devices that stay slow after the automatic drop to low quality, get a dismissible offer to open the text version. The Ask panel's **How this works** section explains the retrieval, grounding and cost controls to visitors. Open Graph metadata, `og.jpg`, `robots.txt`, and `sitemap.xml` support discovery and sharing. The page conditionally loads Vercel Analytics on the configured host families.
+
+## Monitoring
+
+`.github/workflows/uptime.yml` runs every 6 hours (and on demand from the Actions tab). It checks that the 3D site, text page and 2D site load, that `/api/ask` returns a real answer, that the guestbook API responds, and that each live demo answers. Failed runs appear in GitHub Actions; email notifications depend on each account’s notification settings. Each run makes one Ask request, which may be served from cache or incur model usage.
 
 ## Packages and operating costs
 

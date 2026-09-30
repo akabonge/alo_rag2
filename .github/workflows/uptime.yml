@@ -1,0 +1,66 @@
+# Smoke check for the live site. Runs every 6 hours and on demand (Actions tab → Uptime check → Run workflow).
+# Failed checks mark the run as failed; notifications depend on GitHub account settings.
+# One Ask request per run; uncached requests incur provider model usage.
+name: Uptime check
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SITE: https://3d.aialo.io
+    steps:
+      - name: 3D site and text version load
+        run: |
+          set -e
+          for path in / /text.html /proofmode.html /favicon.svg; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SITE$path")
+            echo "$path -> $code"; [ "$code" = "200" ]
+          done
+
+      - name: 2D site loads
+        if: ${{ !cancelled() }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 20 https://aialo.io/)
+          echo "aialo.io -> $code"; [ "$code" = "200" ]
+
+      - name: Ask API returns a sourced answer
+        if: ${{ !cancelled() }}
+        run: |
+          set -e
+          body=$(curl -s --max-time 30 -X POST "$SITE/api/ask" -H 'content-type: application/json' \
+            -d '{"question":"What does Alo do at Flatter?"}' -w '\n%{http_code}')
+          code=$(echo "$body" | tail -n1); json=$(echo "$body" | sed '$d')
+          echo "HTTP $code"; echo "$json" | head -c 400; echo
+          [ "$code" = "200" ]
+          echo "$json" | jq -e '(.answer | type == "string" and length > 20) and (.sources | type == "array" and length > 0)' > /dev/null
+
+      - name: Guestbook API responds
+        if: ${{ !cancelled() }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$SITE/api/guestbook")
+          echo "guestbook -> $code"; [ "$code" = "200" ]
+
+      - name: Live demos respond
+        if: ${{ !cancelled() }}
+        run: |
+          fail=0
+          for url in \
+            https://app.proofmode.co/ \
+            https://alorestaurant-production.up.railway.app/ \
+            https://ironclad-production-a158.up.railway.app/ \
+            https://med-spa-production.up.railway.app/ \
+            https://realestate-production-bbce.up.railway.app/ \
+            https://web-production-f0d91.up.railway.app/ ; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 45 "$url" || true)
+            echo "$url -> $code"
+            case "$code" in 2*|3*) ;; *) fail=1 ;; esac
+          done
+          exit $fail

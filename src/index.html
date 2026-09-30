@@ -278,6 +278,32 @@ main { position: relative; z-index: 10; pointer-events: none; }
 .now ul { margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.5; color: var(--muted); }
 .now li + li { margin-top: 3px; }
 @media (max-width: 640px) { .now ul { font-size: 13px; line-height: 1.4; } .now { margin: 12px 0 4px; padding: 10px 12px; } }
+/* ---------- Layout polish: responsive HUD and readable Ask panel ---------- */
+.hud-top { background: linear-gradient(to bottom, rgba(6,10,23,0.98) 0%, rgba(6,10,23,0.96) 62%, rgba(6,10,23,0) 100%); padding-bottom: 30px; }
+body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height: calc(env(safe-area-inset-bottom, 0px) + 84px); z-index: 15; pointer-events: none; background: linear-gradient(to top, rgba(6,10,23,0.92), rgba(6,10,23,0)); }
+.brand { white-space: nowrap; flex-shrink: 0; }
+.hud-actions { flex-wrap: nowrap; flex-shrink: 0; }
+@media (max-width: 1360px) { .sky-chip .sc-date { display: none; } }
+@media (max-width: 1180px) { .km { display: none; } }
+@media (max-width: 900px) { .hud-actions .chip-btn.opt { display: none; } }
+@media (max-width: 720px) { .hud-top { padding-bottom: 44px; } .sky-chip { z-index: 21; } }
+@media (max-width: 380px) { .hud-top { gap: 8px; } .hud-actions { gap: 4px; } .hud-actions .chip-btn { padding: 10px 9px; font-size: 0.72rem; } }
+.station .panel { scroll-margin-top: 110px; }
+#ask { background: rgba(8, 12, 30, 0.97); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); max-height: calc(100dvh - 160px); overflow-y: auto; box-shadow: 0 18px 60px rgba(0,0,0,0.55); }
+#ask-toggle { box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
+#lite-offer { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 70px); z-index: 45; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 32px); background: rgba(8,12,30,0.96); border: 1px solid var(--gold); border-radius: 14px; padding: 10px 12px 10px 16px; font: 500 0.8rem/1.3 var(--f-mono); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+#lite-offer[hidden] { display: none; }
+#lite-offer a { color: var(--gold); }
+#lite-offer button { appearance: none; background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; padding: 4px 6px; }
+.how { border-top: 1px solid var(--line); padding-top: 10px; font: 400 0.74rem/1.5 var(--f-body); color: var(--muted); }
+.how summary { cursor: pointer; font: 500 0.72rem/1 var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--signal); list-style: none; }
+.how summary::-webkit-details-marker { display: none; }
+.how summary::before { content: "+ "; } .how[open] summary::before { content: "− "; }
+.how-flow { display: block; width: 100%; height: auto; margin: 12px 0 6px; color: var(--text); }
+.how-flow .b { fill: rgba(255,255,255,0.03); stroke: var(--line); } .how-flow .g { stroke: var(--gold); } .how-flow .s { stroke: var(--signal); }
+.how-flow .m { fill: var(--muted); }
+.how ol { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; } .how b { color: var(--text); font-weight: 600; }
+.how-src { margin: 8px 0 0; font: 400 0.68rem/1.4 var(--f-mono); } .how-src a { color: var(--signal); }
 .text-link { position: fixed; left: -999px; top: 8px; z-index: 99; padding: 8px 12px; background: #fff; color: #000; border-radius: 8px; }
 .text-link:focus { left: 8px; }
 </style>
@@ -453,9 +479,35 @@ main { position: relative; z-index: 10; pointer-events: none; }
     <button type="button" data-q="Does he know Pinecone and RAG?">RAG skills</button>
     <button type="button" data-q="How do I contact him?">Contact</button>
   </div></div>
-  <p class="ask-note">Retrieval (BM25) runs in your browser over this site’s content, then Claude writes the answer from those sources when available. Every answer cites its sources and flies you there.</p>
+  <details class="how">
+    <summary>How this works</summary>
+    <svg class="how-flow" viewBox="0 0 368 76" role="img" aria-label="Question, then keyword search in your browser, then a grounding check, then the Vercel API calling Claude, then a cited answer">
+      <defs><marker id="how-arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="currentColor"/></marker></defs>
+      <g font-family="var(--f-mono)" font-size="9.5" text-anchor="middle" fill="currentColor">
+        <rect x="1" y="14" width="62" height="40" rx="8" class="b"/><text x="32" y="31">Your</text><text x="32" y="43">question</text>
+        <rect x="77" y="14" width="62" height="40" rx="8" class="b"/><text x="108" y="31">BM25</text><text x="108" y="43" class="m">in browser</text>
+        <rect x="153" y="14" width="62" height="40" rx="8" class="b"/><text x="184" y="31">Grounding</text><text x="184" y="43" class="m">check</text>
+        <rect x="229" y="14" width="62" height="40" rx="8" class="b g"/><text x="260" y="31">Claude</text><text x="260" y="43" class="m">via API</text>
+        <rect x="305" y="14" width="62" height="40" rx="8" class="b s"/><text x="336" y="31">Cited</text><text x="336" y="43">answer</text>
+        <path d="M64 34H74" stroke="currentColor" marker-end="url(#how-arr)"/>
+        <path d="M140 34H150" stroke="currentColor" marker-end="url(#how-arr)"/>
+        <path d="M216 34H226" stroke="currentColor" marker-end="url(#how-arr)"/>
+        <path d="M292 34H302" stroke="currentColor" marker-end="url(#how-arr)"/>
+        <text x="184" y="70" class="m">no match → “not on this site” · no AI → quote the source</text>
+      </g>
+    </svg>
+    <ol>
+      <li><b>Search runs on your device.</b> BM25 keyword ranking over this site’s own content (about 57 sections). Instant, free, and it flies the camera to the best source.</li>
+      <li><b>Grounding check.</b> A section must match at least half of your question’s key-word groups and enough terms known to the site, so one stray word (“white” in “White House”) can’t pull in the wrong answer.</li>
+      <li><b>Claude writes the answer.</b> Your question goes to a Vercel function, which independently retrieves up to 3 sections and calls Anthropic’s Claude API. The prompt asks it to use those sources, cite them like [1], and acknowledge missing information.</li>
+      <li><b>Cost and abuse controls.</b> The browser caches answers for the tab session. Each server instance caches answers for up to 24 hours and allows 8 questions per IP per minute. Replies are capped at 220 tokens. The API key stays on the server.</li>
+      <li><b>Fallback.</b> If AI generation is unavailable, you still get matching sentences extracted from the source. Generated answers can make mistakes; check their cited sources.</li>
+    </ol>
+    <p class="how-src">Code: <a href="https://github.com/akabonge/alo_rag2" target="_blank" rel="noopener">github.com/akabonge/alo_rag2</a> · <a href="https://github.com/akabonge/alo_rag2/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">architecture</a></p>
+  </details>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
+<div id="lite-offer" hidden role="status"><span>Running slowly on this device?</span> <a href="text.html">Open the fast text version</a><button type="button" aria-label="Dismiss">✕</button></div>
 
 <div id="tour" hidden role="status" aria-live="polite">
   <div class="tour-bar"><i id="tour-progress"></i></div>

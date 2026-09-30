@@ -186,6 +186,6 @@ The output directory is `src`. Ask has a configured maximum duration of 20 secon
 
 The site can deliver its static content independently of model and guestbook availability. Its browser still depends on external module/font delivery for the full visual experience. The text page provides a simpler reading path.
 
-The current implementation has no distributed answer cache, no durable Ask rate limiter and no automated deployment checks in this repository. It also has no model citation verifier. If traffic grows, useful next steps are shared rate limiting/caching, API error-path coverage, deployment smoke checks, and atomic guestbook moderation. These are future options, not infrastructure already deployed.
+The current implementation has no distributed answer cache and no durable Ask rate limiter. A scheduled GitHub Actions smoke check (`.github/workflows/uptime.yml`) verifies the live pages, both APIs and the demos every 6 hours. It also has no model citation verifier. If traffic grows, useful next steps are shared rate limiting/caching, API error-path coverage, and atomic guestbook moderation. These are future options, not infrastructure already deployed.
 
 Keep the facts and generated pages synchronized, review model/provider usage in their dashboards, and avoid treating per-instance limits as a global cost ceiling. This architecture deliberately keeps public content in Git and credentials in the server runtime.

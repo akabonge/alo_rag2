@@ -180,10 +180,10 @@ export const PROJECTS = [
     badge: '2nd Place · UMW Eagle Egg Pitch',
     when: 'Mar 2026 – Present',
     problem: 'AI-detection tools guess whether writing “looks like” AI after the fact: an arms race that punishes honest students and is easy to spoof.',
-    approach: 'Proof-of-process instead of detection. Timestamped writing checkpoints and revision history are sealed into tamper-evident PDFs, with field-level encryption, Argon2 password hashing and signed JWT sessions.',
+    approach: 'Proof-of-process instead of detection. Timestamped writing checkpoints and revision metrics are summarized in PDFs with integrity stamps, with field-level encryption, Argon2 password hashing and signed JWT sessions.',
     result: 'Won 2nd place at the UMW Eagle Egg Pitch Competition and shipped as a live product.',
     tags: ['FastAPI', 'Next.js', 'PostgreSQL', 'Docker'],
-    links: [{ label: 'GitHub', href: 'https://github.com/akabonge/proofmode' }],
+    links: [{ label: 'Case study', href: 'proofmode.html' }, { label: 'Live app', href: 'https://app.proofmode.co' }, { label: 'GitHub', href: 'https://github.com/akabonge/proofmode' }],
   },
   {
     id: 'rag',

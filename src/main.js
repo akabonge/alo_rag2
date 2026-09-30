@@ -1,6 +1,6 @@
-// AI Alo 3D — standalone test build.
+// AI Alo 3D — interactive portfolio.
 // Stack: three.js (WebGL2 + UnrealBloom), GSAP (intro + tweens), Lenis (smooth scroll).
-// Every mesh, texture and sound is generated in code: no model or image downloads.
+// Procedural scenes and ambient audio are complemented by local photos, video and recordings.
 
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -49,6 +49,14 @@ const imgReady = Promise.all(Object.entries(IMAGES).map(([k, v]) => new Promise(
 })));
 imgReady.then(() => { if (loaded.portrait) { $('#portrait-badge').src = 'assets/portrait-square.jpg'; $('#portrait-btn').hidden = false; } });
 const photo = (k) => loaded[k] ? `<figure class="proof"><img src="${IMAGES[k].src}" alt="${esc(IMAGES[k].alt)}">${IMAGES[k].caption ? `<figcaption>${esc(IMAGES[k].caption)}</figcaption>` : ''}</figure>` : '';
+// Lite offer: a dismissible bar pointing weak/slow devices to the fast text version (stays hidden once dismissed).
+function offerLite(why) {
+  const el = $('#lite-offer'); if (!el || !el.hidden || store.get('lite-dismissed') === '1') return;
+  el.querySelector('span').textContent = why === 'slow' ? 'Running slowly on this device?' : 'On a slow connection or low-memory device?';
+  el.hidden = false;
+  el.querySelector('button').addEventListener('click', () => { el.hidden = true; store.set('lite-dismissed', '1'); }, { once: true });
+}
+if (navigator.connection?.saveData || (navigator.deviceMemory && navigator.deviceMemory <= 2)) setTimeout(() => offerLite('light'), 2500);
 const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), Math.min(8000, Math.max(3200, msg.length * 55))); };
 
 /* ------------------------------------------------------------------ */
@@ -1835,7 +1843,10 @@ async function boot() {
     // performance watchdog: drop to LQ once if the device struggles
     if (!watched && t > 4) {
       frames++; if (dt > 1 / 36) slow++;
-      if (frames === 150) { watched = true; if (slow > 90 && HIGH()) { tier = 'low'; applyTier(); } }
+      if (frames === 150) {
+        if (slow > 90 && HIGH()) { tier = 'low'; applyTier(); frames = 0; slow = 0; } // re-check once in low quality
+        else { watched = true; if (slow > 90) offerLite('slow'); }                   // still struggling: offer the text version
+      }
     }
   });
 }
