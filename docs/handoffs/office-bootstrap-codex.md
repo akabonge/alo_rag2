@@ -1,7 +1,7 @@
 # Office bootstrap — Codex
 
 - Owner / branch: Codex, `codex/office-setup`
-- Status: ready for integration after runtime checks
+- Status: reviewed and ready for integration
 - Starting commit: `5ab6e07`
 
 ## Result
@@ -11,6 +11,8 @@ Added shared agent instructions, project model settings, desk setup/open/status 
 ## Verification
 
 PowerShell parser and setup dry-run checks passed. The script author checked workspace JSON, invalid refs, branch ownership and detached/wrong-repository rejection. An independent review caught GitHub-account precedence and inaccurate profile-isolation wording; both were corrected. The GitHub helper was then verified against the intended account without displaying credentials.
+
+The three worktrees were created successfully and a second setup run preserved them. At Alo's request, the default launcher was changed to one multi-root office window, with Grok first for Cline's primary-root behavior. The combined workspace and PowerShell syntax were validated. Brief requests to Claude Opus 5.5 and GPT-6 Astra Ultra succeeded. Desktop control was unavailable, so the actual closure of older windows was not verified.
 
 ## Runtime boundary
 

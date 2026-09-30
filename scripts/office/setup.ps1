@@ -1,11 +1,13 @@
 <#
 .SYNOPSIS
-Creates three independent Git worktrees and VS Code workspace files for the Alo office.
+Creates three independent Git worktrees and one shared VS Code office workspace.
 .DESCRIPTION
 Existing worktrees and workspace customizations are preserved. This does not fetch,
 install dependencies/extensions, change provider settings, start agents, or push.
 Use -WhatIf to preview. BaseRef only affects branches that do not already exist.
 Each desk starts on <agent>/work; existing <agent>/<task> branches are preserved.
+The shared workspace opens all three worktrees in one window. Separate desk workspace
+files are also generated for optional individual use.
 #>
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
 param(
@@ -34,6 +36,7 @@ foreach ($desk in $context.Desks) {
     }
     if (Test-Path -LiteralPath $desk.WorkspacePath) { Assert-OfficeWorkspace $desk }
 }
+if (Test-Path -LiteralPath $context.SharedWorkspacePath) { Assert-OfficeSharedWorkspace $context }
 
 foreach ($desk in $context.Desks) {
     if (Test-Path -LiteralPath $desk.Path) {
@@ -66,9 +69,14 @@ foreach ($desk in $context.Desks) {
         [IO.File]::WriteAllText($desk.WorkspacePath, (Get-OfficeWorkspaceText $desk), [Text.UTF8Encoding]::new($false))
     }
 }
+if (Test-Path -LiteralPath $context.SharedWorkspacePath) {
+    Write-Host "Keeping shared office workspace: $($context.SharedWorkspacePath)"
+} elseif ($PSCmdlet.ShouldProcess($context.SharedWorkspacePath, 'Create shared VS Code workspace containing all three worktrees')) {
+    [IO.File]::WriteAllText($context.SharedWorkspacePath, (Get-OfficeSharedWorkspaceText $context), [Text.UTF8Encoding]::new($false))
+}
 if ($WhatIfPreference) {
     Write-Host 'Office preview complete. No worktrees or workspace files were changed.'
 } else {
     Write-Host 'Office setup complete. New desks start on <agent>/work; existing <agent>/<task> branches are preserved.'
-    Write-Host 'Use open.ps1 to open the workspaces, or status.ps1 to inspect them.'
+    Write-Host 'Use open.ps1 for the shared office in one window, or status.ps1 to inspect the worktrees.'
 }
