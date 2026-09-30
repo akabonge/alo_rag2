@@ -22,6 +22,8 @@ jobs:
       - run: npm run build:page && git diff --exit-code -- src/index.html src/text.html
       - run: npm test
       - run: npx playwright install --with-deps chromium
+      - name: Audit visibility and target measurement
+        run: npm run test:audit-browser
       - name: Start local static server
         run: python -m http.server 5174 --directory src > /tmp/portfolio-server.log 2>&1 &
       - name: Responsive and interaction regression

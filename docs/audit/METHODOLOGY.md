@@ -56,4 +56,6 @@ Every command is dry-run unless `--apply` is supplied. Default dry runs read all
 
 On Windows the importer uses PowerShell 7 (`pwsh.exe` on PATH) and the office GitHub authentication wrapper. It does not alter execution policies. Other systems use the authenticated `gh` CLI directly.
 
-The integration validation covers pure CLI, accounting, path and reconciliation helpers. A complete rendered audit still needs to be run against the intended site; source checks alone do not validate visual results.
+Integration validation covers CLI subprocess startup, report generation, exit codes, cleanup and offline write guards, as well as accounting/path/reconciliation helpers. `npm run test:audit-browser` exercises real DOM visibility, wrapped-link hit testing and associated checkbox labels without app or API traffic. Closed details contents are excluded; a sufficiently large visible associated label is recorded as an explicit effective-target exception.
+
+A rendered small-phone run was completed locally on 2026-09-30 with network dependencies, separately measuring encoded and decoded data. Its initial output exposed real small-control fixes and audit false positives that were corrected. Per-state occlusion candidates still require scrolling/screenshot review: content passing behind a fixed bar during ordinary scrolling is not evidence that the content is permanently inaccessible. See the release handoff and PR for final evidence; source checks alone do not validate visual results.

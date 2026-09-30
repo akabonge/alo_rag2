@@ -108,7 +108,9 @@ async function configurePage(context, device, options, mirrorRoot, blocked = fal
   return page;
 }
 
-const contextOptions = (device) => ({ viewport: device.viewport, deviceScaleFactor: device.dpr, isMobile: device.touch, hasTouch: device.touch, serviceWorkers: 'block' });
+function contextOptions(device) {
+  return { viewport: device.viewport, deviceScaleFactor: device.dpr, isMobile: device.touch, hasTouch: device.touch, serviceWorkers: 'block' };
+}
 async function auditDevice(browser, name, device, options, out, mirrorRoot) {
   const context = await browser.newContext(contextOptions(device));
   try {

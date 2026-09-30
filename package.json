@@ -9,6 +9,7 @@
     "test": "node --test test/*.test.mjs scripts/audit/audit-tools.test.mjs",
     "test:browser": "node test/browser-smoke.cjs",
     "test:experience": "node test/experience-browser.cjs",
+    "test:audit-browser": "node test/audit-probe-browser.cjs",
     "site:audit": "node scripts/audit/site-audit.mjs",
     "site:audit:phones": "node scripts/audit/site-audit.mjs --quick",
     "roadmap:issues": "node scripts/roadmap/issues.mjs"

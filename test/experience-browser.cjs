@@ -89,9 +89,10 @@ async function screenshot(page, name) { if (output) await page.screenshot({ path
       await page.locator('[data-motion]').filter({ visible: true }).first().click();
       const paused = await state();
       check('Manual motion pause synchronizes controls and releases smooth scrolling', paused.reduced && !paused.lenis && paused.buttons.every(button => button.pressed === 'true' && !button.disabled), paused);
-      await page.mouse.move(200, 300); await page.mouse.wheel(0, 350); await page.waitForTimeout(250);
+      await page.mouse.move(200, 300); await page.mouse.wheel(0, 350);
+      await page.waitForFunction(before => document.documentElement.classList.contains('motion-paused') && Math.abs(scrollY - before) > 5, paused.scrollY, { timeout: 5000 }).catch(() => {});
       const scrolled = await state();
-      check('Manual motion pause preserves ordinary scrolling', Math.abs(scrolled.scrollY - paused.scrollY) > 5, { before: paused.scrollY, after: scrolled.scrollY });
+      check('Manual motion pause preserves ordinary scrolling', scrolled.reduced && !scrolled.lenis && Math.abs(scrolled.scrollY - paused.scrollY) > 5, { before: paused.scrollY, after: scrolled.scrollY, reduced: scrolled.reduced, lenis: scrolled.lenis });
       await page.locator('[data-motion]').filter({ visible: true }).first().click();
       const resumed = await state();
       check('Manual motion resume restores the chosen interactive mode', !resumed.reduced && resumed.lenis && resumed.buttons.every(button => button.pressed === 'false' && !button.disabled), resumed);

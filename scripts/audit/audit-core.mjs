@@ -108,9 +108,13 @@ export function networkMeter(page) {
 export function installProbe() {
   const shown = (el) => {
     if (!el?.getBoundingClientRect) return false;
+    if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
     for (let p = el; p; p = p.parentElement) {
       const s = getComputedStyle(p);
       if (p.hidden || s.display === 'none' || s.visibility !== 'visible' || Number(s.opacity) < 0.05) return false;
+      // Closed details can retain nonzero descendant rectangles in Chromium.
+      // Only the first summary (and its descendants) remains rendered.
+      if (p.tagName === 'DETAILS' && !p.open && p !== el && !p.querySelector(':scope > summary')?.contains(el)) return false;
     }
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
@@ -120,7 +124,9 @@ export function installProbe() {
     if (right <= left || bottom <= top) return [];
     return [0.25, 0.5, 0.75].map((fraction) => ({ x: left + (right - left) * fraction, y: top + (bottom - top) / 2 }));
   };
-  const reachable = (el) => shown(el) && points(el.getBoundingClientRect()).some(({ x, y }) => el.contains(document.elementFromPoint(x, y)));
+  // Wrapped inline links have separate line fragments. Their union box can have
+  // an empty middle that is not part of the link and must not decide reachability.
+  const reachable = (el) => shown(el) && [...el.getClientRects()].some((r) => points(r).some(({ x, y }) => el.contains(document.elementFromPoint(x, y))));
   const key = (el) => {
     if (el.id) return `#${el.id}`;
     const parts = [];
@@ -163,7 +169,11 @@ export function installProbe() {
       const r = el.getBoundingClientRect();
       if (touch && reachable(el) && (r.width < tapPx || r.height < tapPx)) {
         const finding = { key: key(el), label: label(el), width: r.width, height: r.height };
-        const reason = el.getAttribute('data-audit-tap-exception')?.trim();
+        const associatedLabel = [...(el.labels || [])].find((candidate) => {
+          const lr = candidate.getBoundingClientRect();
+          return shown(candidate) && reachable(candidate) && lr.width >= tapPx && lr.height >= tapPx;
+        });
+        const reason = el.getAttribute('data-audit-tap-exception')?.trim() || (associatedLabel && `Associated visible label ${key(associatedLabel)} provides a ${tapPx}px target`);
         if (reason) tapExceptions.push({ ...finding, reason }); else smallTaps.push(finding);
       }
     }
