@@ -4,7 +4,7 @@ import { PROFILE, TIMELINE, EXPERIENCE, PROJECTS, DEMOS, SKILLS, PLACES, STRENGT
 
 const STOP = new Set('a an and are as at be by for from has have he him his how i in is it its me my of on or our that the this to was were what when where which who why will with you your does did do about tell can could would should any all there use used using uses know knows ever alo alos'.split(' '));
 const SYN = {
-  alo: ['profile'], alos: ['profile'], yourself: ['profile'],
+  alo: ['profile'], alos: ['profile'], yourself: ['profile'], speak: ['luganda'], long: ['hours'],
   work: ['experience', 'intern', 'internship'], job: ['experience', 'intern'], jobs: ['experience', 'intern'], worked: ['experience', 'intern'],
   school: ['umw', 'university', 'degree'], college: ['umw', 'university', 'degree'], study: ['degree', 'data', 'science'], education: ['umw', 'degree'],
   award: ['place', 'pitch', 'ncur', 'presented', 'won'], awards: ['place', 'pitch', 'ncur', 'won'], won: ['place', 'pitch'],
@@ -21,6 +21,8 @@ const SYN = {
 const stem = (w) => w.replace(/(ing|ed|es|s)$/,'');
 const words = (s) => s.toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9+#]+/).filter(Boolean);
 const tokens = (s) => words(s).filter((w) => !STOP.has(w)).map(stem);
+const NAME = new Set(['alo', 'alos', 'yourself']); // names only steer toward the profile, never gate a match
+const queryGroups = (q) => words(q).filter((w) => !NAME.has(w) && (!STOP.has(w) || SYN[w])).map((w) => [...(STOP.has(w) ? [] : [w]), ...(SYN[w] || [])].map(stem));
 const queryTokens = (q) => { const w = words(q); return [...w.filter((x) => !STOP.has(x)), ...w.flatMap((x) => SYN[x] || [])].map(stem); };
 
 export function buildCorpus() {
@@ -43,7 +45,7 @@ export function buildCorpus() {
   DEMOS.forEach((d) => c.push({ station: 'demos', src: `Demo · ${d.name}`, open: `demo:${d.id}`, text: `${d.name} is a live ${d.vertical.toLowerCase()} demo. ${d.text} The assistant is called ${d.agent}.` }));
   Object.entries(SKILLS).forEach(([k, v]) => c.push({ station: 'skills', src: `Skills · ${k}`, text: `${k} skills: ${v.join(', ')}.` }));
   c.push({ station: 'contact', src: 'Contact', text: `Reach Alo by email at ${PROFILE.email}, on LinkedIn (aloysious-kabonge) or GitHub (akabonge). Currently working at Flatter, Inc. and not seeking new roles. Mantra: one day at a time.` });
-  return c.map((d) => ({ ...d, toks: tokens(d.text + ' ' + d.src), stoks: new Set(tokens(d.src)) }));
+  return c.map((d) => ({ ...d, toks: tokens(d.text + ' ' + d.src), tset: new Set(tokens(d.text + ' ' + d.src)), stoks: new Set(tokens(d.src)) }));
 }
 
 export function makeIndex(corpus) {
@@ -53,7 +55,13 @@ export function makeIndex(corpus) {
   return function search(q, k = 3) {
     const qt = queryTokens(q);
     if (!qt.length) return [];
+    // Grounding guard: a chunk must match at least half of the question's key terms
+    // (the word or one of its synonyms), and more terms than the question has words the
+    // site never mentions. So "the white house" can't pull in the White Nile.
+    const groups = queryGroups(q), unknown = groups.filter((g) => !g.some((t) => df.has(t))).length;
     return corpus.map((d) => {
+      const hit = groups.filter((g) => g.some((t) => d.tset.has(t))).length;
+      if (groups.length && (hit * 2 < groups.length || hit <= unknown)) return { d, s: 0 };
       let s = 0;
       for (const t of qt) {
         const f = d.toks.filter((x) => x === t).length; if (!f) continue;
