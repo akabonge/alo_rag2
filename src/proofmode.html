@@ -31,7 +31,10 @@ figcaption { font-size: .85rem; color: var(--muted); margin-top: 6px; }
 .compare h3 { margin: 0 0 6px; font-size: 1rem; } .compare p { margin: 0; color: var(--muted); font-size: .95rem; }
 @media (max-width: 560px) { .compare { grid-template-columns: 1fr; } }
 ol.steps { padding-left: 22px; } ol.steps li { margin-bottom: 8px; }
-.arch { width: 100%; height: auto; color: var(--fg); margin: 12px 0; }
+.arch-help { color: var(--muted); font-size: .95rem; }
+.arch-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+.arch-scroll:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.arch { display: block; width: 100%; min-width: 720px; height: auto; color: var(--fg); margin: 12px 0; }
 .arch .box { fill: var(--card); stroke: var(--line); } .arch .hl { stroke: var(--accent); } .arch .sg { stroke: var(--signal); }
 .arch .m { fill: var(--muted); }
 table { width:100%; border-collapse: collapse; font-size: .95rem; } td, th { text-align:left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; } th { color: var(--muted); font-weight: 600; width: 34%; }
@@ -74,20 +77,31 @@ table { width:100%; border-collapse: collapse; font-size: .95rem; } td, th { tex
 </ol>
 
 <h2>Architecture</h2>
-<svg class="arch" viewBox="0 0 720 210" role="img" aria-label="Browser running Next.js and Tiptap talks to a FastAPI backend using JWT cookies and CSRF tokens. FastAPI encrypts essay text with Fernet and stores it in PostgreSQL through SQLAlchemy, and generates PDFs with ReportLab. The web and API run as Docker services on Render with managed PostgreSQL.">
+<p id="architecture-help" class="arch-help">If the diagram is wider than your screen, scroll it sideways. Keyboard users can focus the diagram and use the left and right arrow keys. The same flow is explained in text below.</p>
+<div class="arch-scroll" role="region" aria-label="Architecture diagram" aria-describedby="architecture-help" tabindex="0">
+<svg class="arch" viewBox="0 0 720 210" role="img" aria-label="ProofMode architecture diagram; described in text below.">
   <defs><marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L8 4L0 8z" fill="currentColor"/></marker></defs>
   <g font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13" text-anchor="middle" fill="currentColor">
     <rect x="10" y="40" width="190" height="86" rx="12" class="box"/><text x="105" y="72">Browser</text><text x="105" y="94" class="m">Next.js 14 · TypeScript</text><text x="105" y="112" class="m">Tiptap rich text</text>
-    <rect x="265" y="40" width="190" height="86" rx="12" class="box hl"/><text x="360" y="72">FastAPI</text><text x="360" y="94" class="m">auth · drafts · sharing</text><text x="360" y="112" class="m">security headers</text>
-    <rect x="520" y="14" width="190" height="64" rx="12" class="box sg"/><text x="615" y="42">PostgreSQL</text><text x="615" y="62" class="m">Fernet-encrypted text</text>
-    <rect x="520" y="94" width="190" height="64" rx="12" class="box"/><text x="615" y="122">ReportLab</text><text x="615" y="142" class="m">timeline PDF</text>
+    <rect x="265" y="40" width="190" height="86" rx="12" class="box hl"/><text x="360" y="72">FastAPI</text><text x="360" y="94" class="m">auth · drafts · sharing</text><text x="360" y="112" class="m">encryption · headers</text>
+    <rect x="520" y="14" width="190" height="64" rx="12" class="box sg"/><text x="615" y="42">PostgreSQL</text><text x="615" y="62" class="m">encrypted essay text</text>
+    <rect x="520" y="94" width="190" height="64" rx="12" class="box"/><text x="615" y="122">ReportLab</text><text x="615" y="142" class="m">evidence summary PDF</text>
     <path d="M202 83H262" stroke="currentColor" marker-start="url(#a)" marker-end="url(#a)"/>
     <text x="232" y="74" font-size="10" class="m">JWT + CSRF</text>
-    <path d="M457 70L517 50" stroke="currentColor" marker-end="url(#a)"/><text x="486" y="48" font-size="10" class="m">SQLAlchemy</text>
+    <path d="M457 70L517 50" stroke="currentColor" marker-end="url(#a)"/><text x="486" y="38" font-size="10" class="m">SQLAlchemy</text>
     <path d="M457 96L517 122" stroke="currentColor" marker-end="url(#a)"/>
     <rect x="10" y="170" width="700" height="32" rx="10" fill="none" stroke="currentColor" stroke-dasharray="4 4" opacity=".45"/><text x="360" y="191" class="m">Docker services · managed PostgreSQL · Render</text>
   </g>
 </svg>
+</div>
+<h3>Architecture in text</h3>
+<ol class="steps">
+  <li><b>Browser.</b> Next.js 14 and TypeScript provide the interface, with Tiptap for rich text. The browser talks to FastAPI using JWT cookies and CSRF tokens.</li>
+  <li><b>API.</b> FastAPI handles authentication, drafts and sharing, and adds security headers.</li>
+  <li><b>Database.</b> FastAPI encrypts essay text with Fernet and stores it in PostgreSQL through SQLAlchemy.</li>
+  <li><b>PDF export.</b> ReportLab generates a PDF evidence summary with up to five recent checkpoints, reflection notes, revision metrics and an integrity stamp.</li>
+  <li><b>Hosting.</b> The web and API run as Docker services on Render, with managed PostgreSQL.</li>
+</ol>
 
 <h2>Security and privacy by design</h2>
 <p>Student writing is personal, so security was a requirement from the start, not an add-on:</p>
