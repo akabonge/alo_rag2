@@ -27,6 +27,8 @@ The initial office installation created these labeled GitHub issues. They are as
 
 ## Latest baseline
 
+The progressive-loading increment is [PR #13](https://github.com/akabonge/alo_rag2/pull/13). [Integration and team decisions](handoffs/7-codex-loading.md) link actual Claude-authored design/review, Grok's source challenge, deferred-media and guestbook cleanup, and [measured validation](audit/progressive-loading-2026-09-30.md). Performance issue #7 remains open for scene initialization and real-device work.
+
 The active quality program is [QUALITY-PLAN.md](QUALITY-PLAN.md), with role-assigned issues #6–#11. The first responsive release and independent review evidence are in [handoffs/6-codex.md](handoffs/6-codex.md). PR #5 now includes the earlier diagram task and the first quality release.
 
 The portfolio already has grounded retrieval, current Flatter employment wording, a ProofMode case study, uptime checks and an accessible 2D-to-3D link. Preserve these while improving the office or site.

@@ -1522,7 +1522,7 @@ async function boot() {
     checkRing.position.copy(doc.position);
     proofHit.scale.x = 7.4 / 3.6;
   }
-  const proofLabel = label('ProofMode', '2nd Place · UMW Eagle Egg Pitch'); proofLabel.position.set(0, 3.4, 0); proof.add(proofLabel);
+  // Project titles are in the HTML list and pointer labels, clear at every camera angle.
   const proofHit = new THREE.Mesh(new THREE.BoxGeometry(3.6, 5.2, 2.6), new THREE.MeshBasicMaterial({ visible: false })); proof.add(proofHit);
   const proofEntry = { label: 'ProofMode · open case study', click: () => openDrawer('proj:proofmode'),
     hover: (on) => { tween(docU.uHover, { value: on ? 1 : 0, duration: 0.4 }); tween(proof.rotation, { y: on ? -0.15 : -0.35, duration: 0.8 }); } };
@@ -1542,7 +1542,6 @@ async function boot() {
   query.position.set(0, 4, 0); rag.add(query);
   const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
   const beam = new THREE.Line(beamGeo, new THREE.LineBasicMaterial({ color: GOLD, transparent: true, opacity: 0.9 })); rag.add(beam);
-  const ragLabel = label('Emergency Alerting RAG', 'NCUR 2026 · Pinecone', { accent: '#6fe3d6' }); ragLabel.position.set(0, 5.2, 0); rag.add(ragLabel);
   const ragHit = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 8, 12), new THREE.MeshBasicMaterial({ visible: false })); ragHit.position.y = 0.5; rag.add(ragHit);
   let ragHover = 0;
   const ragEntry = { label: 'RAG research · open case study', click: () => openDrawer('proj:rag'), hover: (on) => { ragHover = on ? 1 : 0; } };

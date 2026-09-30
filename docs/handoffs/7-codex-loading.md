@@ -16,6 +16,8 @@ Known local photo dimensions reserve drawer geometry; switching a failed profile
 
 Refreshing visitor stars now unregisters old raycast targets, clears any removed hover, cancels their scale tweens and disposes owned materials, textures and geometry. Shared Sprite geometry and the glow texture are preserved.
 
+Visual inspection found an existing overlap between the two decorative project-title sprites. Those two sprites are removed; full project names and badges remain in the visible HTML list, with unchanged case-study buttons and separate 3D pointer labels/hit targets. The Habitat video reserves its actual 540×960 frame and uses `object-fit: contain`, after peer review caught the poster's different aspect ratio.
+
 ## Review decisions
 
 | Finding | Decision and evidence |
@@ -35,6 +37,10 @@ Refreshing visitor stars now unregisters old raycast targets, clears any removed
 
 ## Validation and remaining work
 
-The initial 20-check browser suite passed for delayed/failed media, phone/desktop views, deep links, no-WebGL and actual graphics-context loss. The expanded suite, final CI and after measurements are recorded below when complete. Tests mock API writes and never create production guestbook notes.
+Local validation: **65 Node tests**, the complete **26-check media suite** on `e128489`, and **15/15 scoped phone/desktop checks** after the two-label visual correction passed. The last scoped run adds two actual pointer/case-dialog checks to the default media suite, bringing its full assertion count to 28. All browser processes owned by the test worker exited. Generated pages, changed JavaScript syntax and Git whitespace checks passed. Tests mock API writes and never create production guestbook notes.
+
+The final source goes through the PR's quality workflow: generated-page agreement, Node regressions, six audit-DOM checks, the 76-check responsive smoke suite, 45 experience checks and the 28-check media suite. Use PR #13's check records for the final CI outcome. Vercel reported successful preview deployment; direct preview requests redirect to Vercel login, so that is not claimed as an authenticated preview walkthrough.
+
+The [measurement report](../audit/progressive-loading-2026-09-30.md) records every before/after navigation and the limits of comparison. Initial image requests fall from eight to one, with cold response bytes 1,514,896 → 55,529 in the local protocol. This defers media until needed; it does not remove it from the whole visit. Timings use frozen `e128489` before the two-sprite visual cleanup.
 
 The baseline contains three cold/warm pairs, with per-phase marks, response sizes, cache evidence and screenshots. Local 6× CPU throttling and SwiftShader are not a physical-phone benchmark. Severe host memory pressure and variable Google Fonts requests mean timing differences cannot establish a universal percentage speedup. Module discovery, full scene construction, shader compilation and intro/render work remain separate performance tasks.

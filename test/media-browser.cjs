@@ -5,6 +5,7 @@ const fs = require('node:fs'), path = require('node:path');
 const base = new URL(process.argv[2] || 'http://127.0.0.1:5174');
 if (!['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) throw new Error('Run this controlled-network suite against localhost.');
 const output = process.argv[3] ? path.resolve(process.argv[3]) : null;
+const viewsOnly = process.env.MEDIA_VIEWS_ONLY === '1';
 if (output) fs.mkdirSync(output, { recursive: true });
 const results = [], errors = [];
 let runtimeFailure = null, browserVersion;
@@ -66,6 +67,20 @@ async function jump(page, station) {
   await page.waitForFunction(station => location.hash === `#${station}`, station);
 }
 async function shot(page, name) { if (output) await page.screenshot({ path: path.join(output, name + '.png') }); }
+async function projectCases(page) {
+  const evidence = [];
+  for (const [id, title] of [['proofmode', 'ProofMode'], ['rag', 'Emergency Alerting RAG']]) {
+    const button = page.locator(`#projects [data-open="proj:${id}"]`);
+    await button.scrollIntoViewIfNeeded();
+    const target = await button.evaluate(element => { const rect = element.getBoundingClientRect(), hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2); return { text: element.textContent, hit: hit === element || element.contains(hit) }; });
+    await button.click();
+    const modal = await page.locator('#drawer').evaluate(element => element.matches(':modal'));
+    const openedTitle = await page.locator('#drawer-title').innerText();
+    await page.locator('#drawer-close').click();
+    evidence.push({ id, title, ...target, modal, openedTitle, passed: target.text.includes(title) && target.hit && modal && openedTitle.includes(title) });
+  }
+  return evidence;
+}
 const fullRequests = list => list.filter(file => file !== 'portrait-square.jpg');
 
 (async () => {
@@ -99,12 +114,15 @@ const fullRequests = list => list.filter(file => file !== 'portrait-square.jpg')
         const enhanced = await s.page.evaluate(() => window.__mediaQA.state());
         check(`${width}: photos arriving after five seconds enhance all existing scene stand-ins`, !!enhanced.postcard && !!enhanced.proofTexture && enhanced.proofHitScale > 1 && enhanced.holoTexture === before.holoTexture && enhanced.holoVersion > before.holoVersion, enhanced);
         await jump(s.page, 'projects'); await shot(s.page, `proof-enhanced-${width}`);
+        const projectEvidence = await projectCases(s.page);
+        check(`${width}: project names remain reachable and both case-study drawers open`, projectEvidence.every(item => item.passed), projectEvidence);
         await jump(s.page, 'journey'); await shot(s.page, `journey-enhanced-${width}`);
         await jump(s.page, 'contact'); await shot(s.page, `contact-enhanced-${width}`);
         const repeated = await s.page.evaluate(() => window.__mediaQA.state());
         check(`${width}: repeated navigation does not duplicate downloads or scene attachments`, ['umw.jpg','proofmode.jpg','finale.jpg'].every(file => s.requested.filter(x => x === file).length === 1) && repeated.postcard === enhanced.postcard && repeated.proofTexture === enhanced.proofTexture && repeated.holoVersion === enhanced.holoVersion, { requested: s.requested, repeated });
       } finally { await s.close(); }
     }
+    if (!viewsOnly) {
     for (const [station, file] of [['journey','umw.jpg'], ['projects','proofmode.jpg'], ['contact','finale.jpg']]) {
       const s = await scenario(390, { hold: true });
       try { await s.load('#' + station); await s.waitRequest(file); check(`Deep link #${station}: matching scene photo loads without unrelated images`, fullRequests(s.requested).length === 1 && fullRequests(s.requested)[0] === file, { requested: s.requested }); }
@@ -180,9 +198,10 @@ const fullRequests = list => list.filter(file => file !== 'portrait-square.jpg')
         check('Context loss prevents pending photo application after response completion', after.sceneFailed && after.fallback && !after.proofTexture && after.proofHitScale === before.proofHitScale && after.holoVersion === before.holoVersion, after);
       } finally { await s.close(); }
     }
+    }
     check('Progressive-media scenarios have no uncaught JavaScript errors', errors.length === 0, errors);
   } catch (error) { runtimeFailure = { name: error.name, message: error.message }; console.error(error); process.exitCode = 1; }
-  finally { if (output) fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({ timestamp:new Date().toISOString(),browserVersion,completed:!runtimeFailure,runtimeFailure,results,errors },null,2)); }
+  finally { if (output) fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({ timestamp:new Date().toISOString(),browserVersion,scope:viewsOnly?'views':'full',completed:!runtimeFailure,runtimeFailure,results,errors },null,2)); }
   if (results.some(r=>!r.passed)) process.exitCode=1;
   console.log(`${results.filter(r=>r.passed).length}/${results.length} media checks passed; completed=${!runtimeFailure}.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
