@@ -9,6 +9,7 @@ const P = C.PROFILE;
 
 const html = `<!doctype html>
 <html lang="en"><head>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${e(P.name)} · AI/ML Engineer (text version)</title>
 <meta name="description" content="${e(P.pitch)}">
