@@ -13,17 +13,22 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { gsap } from 'gsap';
 import Lenis from 'lenis';
-import { PROFILE, ORIGIN, DEST, TIMELINE, EXPERIENCE, PROJECTS, DEMOS, SKILLS, STATIONS, IMAGES, ASK_ENDPOINT, SOUNDTRACK, PLACES, STRENGTHS, COMMUNITY, GUESTBOOK_ENDPOINT, TOUR, UGANDA_FACTS, DREAMS } from './content.js?v=16';
+import { PROFILE, ORIGIN, DEST, TIMELINE, EXPERIENCE, PROJECTS, DEMOS, SKILLS, STATIONS, IMAGES, ASK_ENDPOINT, SOUNDTRACK, PLACES, STRENGTHS, COMMUNITY, GUESTBOOK_ENDPOINT, TOUR, UGANDA_FACTS, DREAMS } from './content.js';
 import { LAND_N, decodeLand, UGANDA_DOTS } from './landmask.js?v=16';
 import { US_DOTS, US_PINS } from './usmap.js?v=16';
 import { ugandaFlag, usFlag } from './flags.js?v=16';
 import { buildCorpus, makeIndex, extract, ragPrompt } from './ask.js?v=16';
+import { fetchJSON } from './network.js?v=17';
+import { localAtmosphere, placeLabels } from './atmosphere.js?v=18';
 
 /* ------------------------------------------------------------------ */
 /* Environment                                                         */
 /* ------------------------------------------------------------------ */
 const $ = (s) => document.querySelector(s);
-const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+let reduced = motionPreference.matches;
+let motionPaused = false;
+let finishIntro = null;
 const touch = matchMedia('(hover: none)').matches;
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -31,6 +36,7 @@ const store = {
 };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+const tween = (target, options) => gsap.to(target, { ...options, ...(reduced ? { duration: 0, delay: 0 } : {}) });
 const GOLD = new THREE.Color(0xe8b54a);
 const SIGNAL = new THREE.Color(0x6fe3d6);
 const NIGHT = new THREE.Color(0x060a17);
@@ -40,7 +46,7 @@ const HIGH = () => tier === 'high';
 
 const linkHover = {}; // data-open key -> hover(on), filled by the 3D scene
 const lineMats = [];  // LineMaterials that need the viewport size
-let onMissClick = null, onLeaveSkills = null; // called when a canvas click hits nothing
+let onMissClick = null, onLeaveSkills = null, stopFlight = null; // scene interaction cleanup
 const loaded = {};    // IMAGES key -> HTMLImageElement, only for files that exist
 const imgReady = Promise.all(Object.entries(IMAGES).map(([k, v]) => new Promise((res) => {
   const im = new Image(); im.decoding = 'async';
@@ -67,7 +73,7 @@ $('#exp-list').innerHTML = EXPERIENCE.map((e) => `<li><button class="list-btn" d
 $('#proj-list').innerHTML = PROJECTS.map((p) => `<li><button class="list-btn" data-open="proj:${p.id}"><strong>${esc(p.name)}</strong><small>${esc(p.badge)}</small><span class="mono">Case ↗</span></button></li>`).join('');
 $('#demo-list').innerHTML = DEMOS.map((d) => `<li><button class="list-btn" data-open="demo:${d.id}"><strong>${esc(d.name)}</strong><small>${esc(d.agent)} · ${esc(d.text)}</small><span class="mono">Live</span></button></li>`).join('');
 $('#build-list').innerHTML = COMMUNITY.builds.map((b) => `<li><button class="list-btn" data-open="build:${b.id}"><strong>${esc(b.year)} · ${esc(b.city)}, ${esc(b.state)}</strong><small>${esc(b.role)}</small><span class="mono">${esc(b.state)}</span></button></li>`).join('');
-$('#skill-cats').innerHTML = Object.keys(SKILLS).map((k) => `<span>${esc(k)} · ${SKILLS[k].length}</span>`).join('');
+$('#skill-cats').innerHTML = Object.entries(SKILLS).map(([category, skills]) => `<details class="skill-group"><summary>${esc(category)} <span>${skills.length}</span></summary><div>${skills.map((skill) => `<button class="chip-btn" type="button" data-open="skill:${esc(skill)}">${esc(skill)}</button>`).join('')}</div></details>`).join('');
 $('#strength-list').innerHTML = STRENGTHS.map((x, i) => `<button class="strength" type="button" data-open="strengths:all" title="${esc(x.text)}"><b>${i + 1}</b>${esc(x.name)}</button>`).join('');
 $('#email').textContent = PROFILE.email;
 $('#linkedin').href = PROFILE.linkedin;
@@ -86,7 +92,39 @@ $('#copy').addEventListener('click', async () => {
 
 /* Drawer ------------------------------------------------------------ */
 const drawer = $('#drawer'), scrim = $('#scrim');
-let lastFocus = null;
+const modalOpeners = new WeakMap();
+function showModal(dialog, focusTarget, opener = document.activeElement) {
+  if (askPanel.contains(opener)) opener = askBtn;
+  if (!dialog.open) modalOpeners.set(dialog, opener);
+  endTour(); stopFlight?.();
+  $('#section-menu').open = false;
+  if (!askPanel.hidden) closeAsk();
+  document.querySelectorAll('dialog[open]').forEach((other) => {
+    if (other !== dialog) other.dispatchEvent(new Event('dismiss'));
+  });
+  if (!dialog.open) dialog.showModal();
+  document.documentElement.classList.add('modal-open');
+  lenis?.stop();
+  focusTarget?.focus({ preventScroll: true });
+}
+function hideModal(dialog) {
+  if (!dialog.open) return;
+  dialog.close();
+  const opener = modalOpeners.get(dialog); modalOpeners.delete(dialog);
+  if (opener?.isConnected && opener.getClientRects().length) opener.focus({ preventScroll: true });
+  if (!document.querySelector('dialog[open]')) {
+    document.documentElement.classList.remove('modal-open');
+    lenis?.start();
+  }
+}
+function modalDismissal(dialog, close) {
+  dialog.addEventListener('cancel', (event) => { event.preventDefault(); close(); });
+  dialog.addEventListener('dismiss', close);
+  dialog.addEventListener('click', (event) => {
+    const r = dialog.getBoundingClientRect();
+    if (event.target === dialog && (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom)) close();
+  });
+}
 const tagHTML = (tags) => `<div class="tags">${tags.map((t) => `<span>${esc(t)}</span>`).join('')}</div>`;
 const SKILL_KEYS = {
   'Claude API': ['claude'], 'RAG Pipelines': ['rag', 'retrieval'], 'LLM Evaluation': ['evaluation', 'faithfulness'], 'PII/PHI Redaction': ['pii'], 'Prompt-Injection Defense': ['prompt-injection', 'prompt injection'],
@@ -156,7 +194,7 @@ const builders = {
   },
   build: (id) => {
     const b = COMMUNITY.builds.find((x) => x.id === id);
-    const media = b.video ? `<figure class="proof"><video src="${b.video}" ${loaded[b.photo] ? `poster="${IMAGES[b.photo].src}"` : ''} autoplay muted loop playsinline aria-label="Short clip of the Goose Creek Habitat crew"></video><figcaption>${esc(IMAGES[b.photo]?.caption || '')}</figcaption></figure>` : (b.photo ? photo(b.photo) : '');
+    const media = b.video ? `<figure class="proof"><video src="${b.video}" ${loaded[b.photo] ? `poster="${IMAGES[b.photo].src}"` : ''} controls preload="none" muted playsinline aria-label="Short clip of the Goose Creek Habitat crew"></video><figcaption>${esc(IMAGES[b.photo]?.caption || '')}</figcaption></figure>` : (b.photo ? photo(b.photo) : '');
     return `${media}<span class="eyebrow">Spring Break ${esc(b.year)} · ${esc(b.role)}</span><h3 id="drawer-title">${esc(b.city)}, ${esc(b.state)}</h3>
       <p>${esc(b.text)}</p><p class="sub">With ${esc(b.org)}</p>
       <div class="cta-row"><a class="cta" href="${b.href}" target="_blank" rel="noopener">Visit ${esc(b.org)} ↗</a><button class="cta ghost" type="button" data-open="community:all">All builds</button></div>`;
@@ -166,34 +204,38 @@ const builders = {
       <p>From <button class="inline-link" type="button" data-open="place:uganda">Uganda</button> to <button class="inline-link" type="button" data-open="place:fredericksburg">Fredericksburg</button>: 11,619 km, one day at a time.</p>
       <p class="sub">Success is rarely a solo journey.</p><div class="timeline">${$('#timeline').innerHTML}</div>`,
 };
-function openDrawer(key) {
+function openDrawer(key, opener = document.activeElement) {
   const [kind, id] = key.split(':');
   $('#drawer-body').innerHTML = builders[kind](id);
-  lastFocus = document.activeElement;
-  drawer.classList.add('open'); scrim.classList.add('show'); drawer.setAttribute('aria-hidden', 'false');
-  $('#drawer-close').focus({ preventScroll: true });
-  lenis?.stop();
+  drawer.classList.add('open');
+  showModal(drawer, $('#drawer-close'), opener);
   audio.ping(kind === 'demo' ? 880 : 660);
 }
 function closeDrawer() {
-  drawer.classList.remove('open'); scrim.classList.remove('show'); drawer.setAttribute('aria-hidden', 'true');
-  lenis?.start();
-  lastFocus?.focus?.({ preventScroll: true });
+  drawer.querySelectorAll('video').forEach((video) => video.pause());
+  drawer.classList.remove('open');
+  hideModal(drawer);
 }
 $('#drawer-close').addEventListener('click', closeDrawer);
 scrim.addEventListener('click', closeDrawer);
+modalDismissal(drawer, closeDrawer);
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer(); });
 
 document.addEventListener('click', (e) => {
   const open = e.target.closest('[data-open]');
-  if (open) { openDrawer(open.dataset.open); return; }
+  if (open) { openDrawer(open.dataset.open, open); return; }
   const ask = e.target.closest('[data-ask]');
   if (ask) { closeDrawer(); openAsk(); askInput.value = ask.dataset.ask; answer(ask.dataset.ask); return; }
   const jump = e.target.closest('[data-jump]');
   if (jump) {
     e.preventDefault();
+    endTour(); stopFlight?.();
     if (jump.hasAttribute('data-close')) closeDrawer();
     goTo(jump.dataset.jump);
+    if (jump.closest('#section-menu')) {
+      const heading = document.getElementById(jump.dataset.jump)?.querySelector('h1, h2');
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    }
   }
 });
 
@@ -201,8 +243,21 @@ document.addEventListener('click', (e) => {
 const search = makeIndex(buildCorpus());
 const askPanel = $('#ask'), askInput = $('#ask-input'), askOut = $('#ask-out'), askBtn = $('#ask-toggle');
 const chipsHTML = askOut.innerHTML;
-function openAsk() { askPanel.hidden = false; askBtn.setAttribute('aria-expanded', 'true'); askInput.focus({ preventScroll: true }); }
-function closeAsk() { askPanel.hidden = true; askBtn.setAttribute('aria-expanded', 'false'); askBtn.focus({ preventScroll: true }); }
+function openAsk() {
+  endTour(); stopFlight?.(); onLeaveSkills?.();
+  stopVoice();
+  $('#section-menu').open = false;
+  document.querySelectorAll('dialog[open]').forEach((el) => el.dispatchEvent(new Event('dismiss')));
+  askPanel.hidden = false; askBtn.setAttribute('aria-expanded', 'true'); askInput.focus({ preventScroll: true });
+}
+function closeAsk({ restoreFocus = true } = {}) {
+  askCtl?.abort(); askSequence++; askOut.removeAttribute('aria-busy');
+  if (voiceOn()) stopVoice();
+  askPanel.hidden = true; askBtn.setAttribute('aria-expanded', 'false'); if (restoreFocus) askBtn.focus({ preventScroll: true });
+}
+$('#section-menu').addEventListener('toggle', () => {
+  if ($('#section-menu').open) { if (!askPanel.hidden) closeAsk({ restoreFocus: false }); endTour(); stopFlight?.(); onLeaveSkills?.(); }
+});
 askBtn.addEventListener('click', () => (askPanel.hidden ? openAsk() : closeAsk()));
 $('#ask-close').addEventListener('click', closeAsk);
 addEventListener('keydown', (e) => {
@@ -212,35 +267,41 @@ addEventListener('keydown', (e) => {
 });
 $('#ask-form').addEventListener('submit', (e) => { e.preventDefault(); answer(askInput.value); });
 askPanel.addEventListener('click', (e) => { const c = e.target.closest('[data-q]'); if (c) { askInput.value = c.dataset.q; answer(c.dataset.q); } });
-let typer = 0, askCtl = null, sampleOff = false;
+let askSequence = 0, askCtl = null, sampleOff = false;
 const samplerP = (window.claude?.use ? window.claude.use('sample').catch(() => null) : Promise.resolve(null));
 const citeList = (r) => r.map((x, i) => `[${i + 1}] ${esc(x.d.src)}`).join(' · ');
-async function generate(q, r, el, srcEl) {
+async function generate(q, r, el, srcEl, signal, current) {
   // 1) your own serverless endpoint (does retrieval + Claude server-side)
   if (ASK_ENDPOINT) {
     try {
       srcEl.textContent = 'Writing an answer…';
       const ck = 'ask:' + q.toLowerCase().replace(/\s+/g, ' ').trim();
       let j = null; try { j = JSON.parse(sessionStorage.getItem(ck) || 'null'); } catch { /* storage blocked */ }
+      const valid = (value) => typeof value?.answer === 'string' && value.answer.trim() && Array.isArray(value.sources) && value.sources.every((s) => typeof s === 'string');
+      if (!valid(j)) j = null;
       if (!j) {
-        const res = await fetch(ASK_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }) });
-        if (!res.ok) throw new Error(res.status);
-        j = await res.json();
+        j = await fetchJSON(ASK_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q }), signal, timeout: 12000 });
+        if (!valid(j)) throw new Error('Invalid answer');
+        if (!current()) return;
         try { sessionStorage.setItem(ck, JSON.stringify(j)); } catch { /* storage blocked */ }
       }
+      if (!current()) return;
       el.textContent = j.answer; srcEl.textContent = `Claude · grounded in ${j.sources?.join(' · ') || 'site content'}`;
       return;
     } catch { /* fall through */ }
   }
+  if (!current()) return;
   // 2) Claude inside claude.ai (viewer's own account, asks consent on first use)
   const sample = sampleOff ? null : await samplerP;
+  if (!current()) return;
   if (!sample) { srcEl.textContent = `Retrieved · ${citeList(r)}`; return; }
-  askCtl?.abort(); askCtl = new AbortController();
   srcEl.textContent = 'Retrieved sources · Claude is writing…';
   try {
-    await sample(ragPrompt(q, r), { modelTier: 'quick', signal: askCtl.signal, onText: ({ text }) => { clearInterval(typer); el.textContent = text; } });
+    await sample(ragPrompt(q, r), { modelTier: 'quick', signal, onText: ({ text }) => { if (current()) el.textContent = text; } });
+    if (!current()) return;
     srcEl.textContent = `Claude · grounded in ${citeList(r)}`;
   } catch (e) {
+    if (!current()) return;
     if (e?.text) el.textContent = e.text;
     if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(e?.code)) sampleOff = true;
     srcEl.textContent = e?.code === 'cancelled' ? '' : `Retrieved · ${citeList(r)}`;
@@ -248,8 +309,12 @@ async function generate(q, r, el, srcEl) {
 }
 function answer(q) {
   q = q.trim(); if (!q) return;
+  askCtl?.abort(); askCtl = new AbortController();
+  const signal = askCtl.signal, sequence = ++askSequence;
+  const current = () => sequence === askSequence && !signal.aborted;
+  if (voiceOn()) synth?.cancel();
   const r = search(q, 4);
-  clearInterval(typer);
+  askOut.removeAttribute('aria-busy');
   if (!r.length) {
     askOut.innerHTML = `<p class="ask-a">That isn’t covered on this site. Try experience, projects, demos, skills or how to get in touch.</p>${chipsHTML}`;
     return;
@@ -257,10 +322,14 @@ function answer(q) {
   const top = r[0].d, text = extract(top.text, q);
   askOut.innerHTML = `<p class="ask-a" id="ask-a"></p><p class="ask-src" id="ask-src"></p>${top.open ? `<button class="chip-btn" type="button" data-open="${top.open}">Open details</button>` : ''}`;
   const el = $('#ask-a');
-  if (reduced) el.textContent = text;
-  else { let i = 0; typer = setInterval(() => { i += 3; el.textContent = text.slice(0, i); if (i >= text.length) clearInterval(typer); }, 16); }
-  generate(q, r, el, $('#ask-src')).then(() => { if (voiceOn()) speak((el.textContent.length > 20 ? el.textContent : text).replace(/\[\d+\]/g, '')); });
-  goTo(top.station);
+  el.textContent = text;
+  askOut.setAttribute('aria-busy', 'true');
+  generate(q, r, el, $('#ask-src'), signal, current).finally(() => {
+    if (!current()) return;
+    askOut.removeAttribute('aria-busy');
+    if (voiceOn()) speak((el.textContent.length > 20 ? el.textContent : text).replace(/\[\d+\]/g, ''));
+  });
+  if (!touch) goTo(top.station);
   const hv = linkHover[top.open];
   if (hv) { setTimeout(() => hv(true), 1700); setTimeout(() => hv(false), 4800); }
   audio.ping(700);
@@ -277,15 +346,14 @@ function answer(q) {
 //   cycle) and an amadinda-style interlocking xylophone, both soft and distant
 const CHORDS = [ // one per station, mid register (no low drone)
   [146.83, 220, 293.66, 369.99],
-  [146.83, 220, 293.66, 369.99], [146.83, 220, 277.18, 369.99], [123.47, 185, 246.94, 293.66], [130.81, 196, 261.63, 329.63],
-  [146.83, 196, 246.94, 369.99], [110, 164.81, 220, 277.18], [123.47, 185, 246.94, 329.63], [130.81, 196, 261.63, 392], [146.83, 220, 293.66, 440],
+  [146.83, 220, 293.66, 369.99], [146.83, 220, 277.18, 369.99], [123.47, 185, 246.94, 293.66], [98, 196, 246.94, 293.66],
+  [146.83, 196, 246.94, 369.99], [110, 164.81, 220, 277.18], [123.47, 185, 246.94, 329.63], [98, 196, 246.94, 392], [146.83, 220, 293.66, 440],
 ];
-const PENTA = [293.66, 329.63, 369.99, 440, 493.88, 587.33, 659.25, 739.99, 880, 987.77];
 const AMADINDA = Array.from({ length: 10 }, (_, k) => 196 * Math.pow(2, k / 5));
 const OKUNAGA = [0, 2, 4, 2, 1, 3, 0, 2, 4, 3, 1, 2], OKWAWULA = [5, 7, 6, 8, 5, 6, 7, 9, 6, 8, 7, 5];
 const DRUM_LOW = new Set([0, 7]), DRUM_MID = new Set([3, 5, 10]), DRUM_HIGH = new Set([1, 2, 4, 6, 8, 9, 11]);
 const audio = {
-  ctx: null, on: false, chord: -1, afro: 0, bellRate: 1, track: null,
+  ctx: null, on: false, chord: -1, afro: 0, bellRate: 1, track: null, ducked: false, intent: 0,
   init() {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const master = ctx.createGain(); master.gain.value = 0;
@@ -295,8 +363,8 @@ const audio = {
     const len = Math.floor(ctx.sampleRate * 5.5), ir = ctx.createBuffer(2, len, ctx.sampleRate);
     for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); let lp = 0; for (let i = 0; i < len; i++) { lp = lp * 0.6 + (Math.random() * 2 - 1) * 0.4; d[i] = lp * Math.pow(1 - i / len, 2.2); } }
     const verb = ctx.createConvolver(); verb.buffer = ir;
-    const wet = ctx.createGain(); wet.gain.value = 0.75; verb.connect(wet).connect(master);
-    const dry = ctx.createGain(); dry.gain.value = 0.55; dry.connect(master);
+    const wet = ctx.createGain(); wet.gain.value = 0.42; verb.connect(wet).connect(master);
+    const dry = ctx.createGain(); dry.gain.value = 0.68; dry.connect(master);
     // piano and guitar buses (the old hum pad is gone)
     const filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 4200; filter.Q.value = 0.2;
     const padBus = ctx.createGain(); padBus.gain.value = 0.9; padBus.connect(filter); filter.connect(dry); filter.connect(verb);
@@ -365,24 +433,29 @@ const audio = {
     g.connect(this.afroBus);
   },
   schedule() {
-    if (!this.on) return;
+    if (!this.on || document.hidden || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
+    // Background throttling must not schedule a burst of missed notes on return.
+    this.next = Math.max(this.next, now); this.pnext = Math.max(this.pnext, now); this.nextBell = Math.max(this.nextBell, now);
     while (this.nextBell < now + 0.3) {
-      const n = PENTA[Math.floor(Math.random() * PENTA.length)];
+      const harmony = CHORDS[Math.max(0, this.chord)] || CHORDS[0];
+      const n = harmony[1 + (this.pstep % 3)] * 2;
       this.bell(n, this.nextBell, 0.05 + Math.random() * 0.07);
       if (Math.random() < 0.3) this.bell(n * 1.5 > 1000 ? n * 0.75 : n * 1.5, this.nextBell + 0.35, 0.04);
       this.nextBell += (5 + Math.random() * 6) / this.bellRate;
     }
-    // piano: gentle broken chords, a bass note each bar, an occasional melody note
+    // "One day at a time": an eight-bar phrase with a returning melody and breathing room.
+    // Chord tones keep the melody consonant as visitors move between stations.
     while (this.pnext < now + 0.3) {
-      const c = CHORDS[Math.max(0, this.chord)] || CHORDS[0], s = this.pstep % 6, t = this.pnext, piano = 1 - this.afro * 0.85;
+      const c = CHORDS[Math.max(0, this.chord)] || CHORDS[0], s = this.pstep % 8, bar = Math.floor(this.pstep / 8) % 8, t = this.pnext, piano = 1 - this.afro * 0.65;
       if (piano > 0.08) {
-        const human = (Math.random() - 0.5) * 0.02;
-        if (s === 0) this.piano(c[0] / 2, t, 0.16 * piano);
-        this.piano([c[1], c[2], c[3], c[2] * 2 > 900 ? c[1] : c[2] * 2, c[3], c[2]][s], t + human, (s === 0 ? 0.13 : 0.09 + Math.random() * 0.03) * piano);
-        if (s === 3 && (this.pstep / 6 | 0) % 2 === 1 && Math.random() < 0.6) this.piano(PENTA[5 + Math.floor(Math.random() * 4)], t + 0.05, 0.08 * piano);
+        const human = Math.random() * 0.016, swell = 0.78 + Math.sin(bar / 7 * Math.PI) * 0.22;
+        if (s === 0) this.piano(c[0] / 2, t, 0.13 * piano * swell);
+        if (s < 6) this.piano([c[1], c[2], c[3], c[2], c[1], c[3]][s], t + human, (s === 0 ? 0.11 : 0.075) * piano * swell);
+        const motif = [[2, 3, 2, 1], [1, 2, 3, 2], [2, 3, 1, 2], [3, 2, 1, 0]][bar % 4];
+        if (!this.ducked && s % 2 === 0 && !(bar === 7 && s > 2)) this.piano(c[motif[s / 2]] * 2, t + 0.025, 0.085 * piano * swell);
       }
-      this.pnext += 0.42; this.pstep++;
+      this.pnext += 0.48; this.pstep++;
     }
     while (this.next < now + 0.25) {
       if (this.afro > 0.03) {
@@ -394,17 +467,25 @@ const audio = {
         if (DRUM_HIGH.has(s)) this.drum('high', t, 0.09 + Math.random() * 0.05);
         if (this.step % 2 === 0) { const k = (this.step >> 1) % 12; this.pluck(AMADINDA[(this.step >> 1) % 2 ? OKWAWULA[k] : OKUNAGA[k]], t); }
       }
-      this.next += 0.19; this.step++;
+      this.next += 0.24; this.step++;
     }
   },
   toggle() {
     if (!this.ctx) this.init();
     this.on = !this.on;
-    this.ctx.resume();
-    const t = this.ctx.currentTime; this.next = t + 0.2; this.nextBell = t + 1.2;
-    this.master.gain.cancelScheduledValues(t); this.master.gain.setTargetAtTime(this.on ? 0.55 : 0, t, this.on ? 1.4 : 0.5);
-    if (this.track) { if (this.on) this.track.play().catch(() => {}); else setTimeout(() => this.track.pause(), 1500); }
+    const intent = ++this.intent;
+    clearTimeout(this.suspendTimer);
+    const t = this.ctx.currentTime; this.next = t + 0.2; this.pnext = t + 0.25; this.nextBell = t + 2;
+    if (this.on) this.ctx.resume().then(() => { if (intent === this.intent && this.on && !document.hidden && this.ctx.state !== 'running') { this.on = false; syncSound(); } }).catch(() => { if (intent === this.intent && !document.hidden) { this.on = false; syncSound(); } });
+    this.level(this.on ? 0.9 : 0.12);
+    if (this.track) { if (this.on) this.track.play().catch(() => {}); else this.track.pause(); }
+    if (!this.on) this.suspendTimer = setTimeout(() => { if (!this.on) this.ctx.suspend().catch(() => {}); }, 700);
     return this.on;
+  },
+  level(fade = 0.3) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, gain = !this.on || document.hidden ? 0 : this.ducked ? 0.12 : 0.42;
+    this.master.gain.cancelScheduledValues(t); this.master.gain.setTargetAtTime(gain, t, fade);
   },
   update(f) {
     if (!this.on) return;
@@ -415,7 +496,7 @@ const audio = {
     if (Math.abs(amt - this.afro) > 0.02) { this.afro = amt; this.afroBus.gain.setTargetAtTime(amt * 0.5, t, 0.6); this.guitarBus.gain.setTargetAtTime(amt * 0.9, t, 0.6); }
     this.bellRate = Math.abs(f - 6) < 0.6 ? 2 : 1; // more "stars" over the skill constellation
   },
-  duck(on) { if (this.ctx) this.master.gain.setTargetAtTime(on ? 0.22 : (this.on ? 0.55 : 0), this.ctx.currentTime, 0.3); },
+  duck(on) { this.ducked = on; this.level(); },
   flightAmt: -1,
   flight(p) { // p: 0..1 during the flight, -1 when not flying
     this.flightAmt = p;
@@ -438,10 +519,25 @@ const audio = {
     o.connect(g); g.connect(this.dry); g.connect(this.verb); o.start(t); o.stop(t + 1);
   },
 };
-$('#sound').addEventListener('click', (e) => {
-  try { e.currentTarget.setAttribute('aria-pressed', String(audio.toggle())); } catch { e.currentTarget.disabled = true; }
+function syncSound() {
+  document.querySelectorAll('[data-sound]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(audio.on));
+    button.setAttribute('aria-label', audio.on ? 'Mute original ambient score' : 'Play original ambient score');
+  });
+}
+document.querySelectorAll('[data-sound]').forEach((button) => button.addEventListener('click', () => {
+  try { audio.toggle(); syncSound(); } catch { toast('Sound is unavailable in this browser.'); }
+}));
+document.addEventListener('visibilitychange', () => {
+  if (!audio.ctx) return;
+  const intent = ++audio.intent;
+  clearTimeout(audio.suspendTimer);
+  if (document.hidden) { audio.track?.pause(); audio.ctx.suspend().catch(() => {}); }
+  else if (audio.on) {
+    audio.next = audio.pnext = audio.ctx.currentTime + 0.2; audio.nextBell = audio.ctx.currentTime + 2;
+    audio.ctx.resume().then(() => { if (intent !== audio.intent || !audio.on || document.hidden) return; audio.level(); audio.track?.play().catch(() => {}); }).catch(() => { if (intent === audio.intent && !document.hidden) { audio.on = false; syncSound(); } });
+  }
 });
-const soundOn = () => { if (!audio.on) { try { $('#sound').setAttribute('aria-pressed', String(audio.toggle())); } catch { /* no audio */ } } };
 
 /* ------------------------------------------------------------------ */
 /* Live clock: the visitor's date and time, plus Kampala and Fredericksburg */
@@ -452,7 +548,7 @@ const fDate = fmt({ weekday: 'short', month: 'short', day: 'numeric' }), fTime =
 const fKla = fmt({ hour: 'numeric', minute: '2-digit', weekday: 'short' }, 'Africa/Kampala'), fFxb = fmt({ hour: 'numeric', minute: '2-digit', weekday: 'short' }, 'America/New_York');
 function tickClock() {
   const d = new Date();
-  $('#sky-chip').innerHTML = `<span class="sc-date">${fDate.format(d)} · </span><time datetime="${d.toISOString()}">${fTime.format(d)}</time>${skyPhase ? `<span class="sc-date"> · your ${esc(skyPhase)}</span>` : ''}`;
+  $('#sky-chip').innerHTML = `<span class="sc-date">${fDate.format(d)} · </span><time datetime="${d.toISOString()}">${fTime.format(d)}</time>${skyPhase ? `<span class="sky-phase">${esc(skyPhase)}</span>` : ''}`;
   const k = $('#t-kla'), f = $('#t-fxb'); if (k) { k.textContent = fKla.format(d); f.textContent = fFxb.format(d); }
 }
 tickClock(); setInterval(tickClock, 1000);
@@ -461,6 +557,11 @@ tickClock(); setInterval(tickClock, 1000);
 /* Voice: speak (browser speech synthesis, free) and listen            */
 /* ------------------------------------------------------------------ */
 const synth = window.speechSynthesis;
+let activeUtterance = null, voiceClip = null, voiceSequence = 0;
+function stopVoice() {
+  voiceSequence++; voiceClip?.pause(); voiceClip = null; activeUtterance = null;
+  synth?.cancel(); audio.duck(false);
+}
 let voices = [];
 const loadVoices = () => { try { voices = synth?.getVoices() || []; } catch { voices = []; } };
 loadVoices(); try { synth?.addEventListener?.('voiceschanged', loadVoices); } catch { /* old browser */ }
@@ -471,17 +572,19 @@ function pickVoice() {
 function speak(text, { rate = 1, pitch = 1 } = {}) {
   if (!synth || !text) return;
   try {
-    synth.cancel();
+    stopVoice();
     const u = new SpeechSynthesisUtterance(text.slice(0, 600)); const v = pickVoice(); if (v) u.voice = v;
+    activeUtterance = u;
     u.rate = rate; u.pitch = pitch; u.volume = 1;
-    if (audio.on) { audio.duck(true); u.onend = u.onerror = () => audio.duck(false); }
+    audio.duck(true);
+    u.onend = u.onerror = () => { if (activeUtterance === u) { activeUtterance = null; audio.duck(false); } };
     synth.speak(u);
-  } catch { /* speech unavailable */ }
+  } catch { activeUtterance = null; audio.duck(false); }
 }
 const voiceOn = () => $('#ask-voice').checked;
 try { $('#ask-voice').checked = store.get('aialo3d-voice') === '1'; } catch { /* storage */ }
-$('#ask-voice').addEventListener('change', (e) => { store.set('aialo3d-voice', e.target.checked ? '1' : '0'); if (!e.target.checked) synth?.cancel(); });
-if (!synth) { $('#ask-voice').closest('label').hidden = true; $('#tour-voice').closest('label').hidden = true; }
+$('#ask-voice').addEventListener('change', (e) => { store.set('aialo3d-voice', e.target.checked ? '1' : '0'); if (!e.target.checked) stopVoice(); });
+if (!synth) $('#ask-voice').closest('label').hidden = true;
 
 // Luganda greeting: plays assets/oli-otya.mp3 (record your own voice!) or falls back to a phonetic read.
 $('#greet-reply').addEventListener('click', () => {
@@ -490,16 +593,24 @@ $('#greet-reply').addEventListener('click', () => {
 });
 // My own voice: assets/oli-otya.mp3 and assets/webale-kujja.mp3 (falls back to a phonetic read)
 function playVoice(src, fallback) {
-  const clip = new Audio(src);
-  if (audio.on) { audio.duck(true); clip.onended = clip.onerror = () => audio.duck(false); }
-  clip.play().catch(() => { audio.duck(false); speak(fallback, { rate: 0.85 }); });
+  endTour(); stopVoice();
+  const token = voiceSequence, clip = new Audio(src); voiceClip = clip;
+  const valid = () => token === voiceSequence && voiceClip === clip;
+  audio.duck(true);
+  clip.onended = () => { if (valid()) { voiceClip = null; audio.duck(false); } };
+  const fail = () => { if (valid()) { stopVoice(); speak(fallback, { rate: 0.85 }); } };
+  clip.onerror = fail; clip.play().catch(fail);
 }
-function playSequence(list, fallback, i = 0) {
-  if (i >= list.length) { audio.duck(false); return; }
-  const clip = new Audio(list[i]);
-  if (audio.on) audio.duck(true);
-  clip.onended = () => setTimeout(() => playSequence(list, fallback, i + 1), 260);
-  clip.play().catch(() => { audio.duck(false); if (i === 0) speak(fallback, { rate: 0.9 }); });
+function playSequence(list, fallback, i = 0, token) {
+  if (i === 0) { endTour(); stopVoice(); token = voiceSequence; }
+  if (token !== voiceSequence) return;
+  if (i >= list.length) { voiceClip = null; audio.duck(false); return; }
+  const clip = new Audio(list[i]); voiceClip = clip;
+  const valid = () => token === voiceSequence && voiceClip === clip;
+  audio.duck(true);
+  clip.onended = () => setTimeout(() => { if (valid()) playSequence(list, fallback, i + 1, token); }, 260);
+  const fail = () => { if (valid()) { stopVoice(); if (i === 0) speak(fallback, { rate: 0.9 }); } };
+  clip.onerror = fail; clip.play().catch(fail);
 }
 $('#hear-greet').addEventListener('click', () => playVoice('assets/oli-otya.mp3', 'Oh-lee, oh-chah?'));
 $('#hear-webale').addEventListener('click', () => playVoice('assets/webale-kujja.mp3', 'Weh-bah-leh koo-jah!'));
@@ -543,48 +654,59 @@ document.querySelectorAll('.resume-link').forEach((a) => a.addEventListener('cli
 /* Guided tour (recruiter mode)                                     */
 /* ------------------------------------------------------------------ */
 const tourEl = $('#tour');
-let tourTimer = 0, touring = false, tourClip = null;
+let tourTimer = 0, touring = false, tourClip = null, tourRun = 0, tourMediaTimer = 0, tourArrivalTimer = 0, tourSettleTimer = 0;
+const syncTour = () => document.querySelectorAll('[data-tour]').forEach((button) => button.setAttribute('aria-pressed', String(touring)));
 function endTour() {
-  if (!touring) return; touring = false; clearTimeout(tourTimer); synth?.cancel(); tourClip?.pause(); audio.duck(false);
+  if (!touring) return; touring = false; tourRun++;
+  clearTimeout(tourTimer); clearTimeout(tourMediaTimer); clearTimeout(tourArrivalTimer); clearTimeout(tourSettleTimer);
+  stopVoice(); tourClip?.pause(); tourClip = null; audio.duck(false); syncTour();
   tourEl.hidden = true; document.body.classList.remove('touring'); lenis?.start();
 }
 function startTour() {
-  if (touring) return; closeDrawer(); if (!askPanel.hidden) closeAsk();
+  if (touring) return; stopFlight?.(); closeDrawer(); if (!askPanel.hidden) closeAsk();
+  stopVoice();
   touring = true; tourEl.hidden = false; document.body.classList.add('touring');
+  const runId = ++tourRun; syncTour();
   let k = 0; const total = TOUR.reduce((a, t) => a + t.secs, 0); let elapsed = 0;
   const step = () => {
-    if (!touring) return;
+    if (!touring || runId !== tourRun) return;
     if (k >= TOUR.length) { endTour(); toast('That’s the tour. The resume is one click away.'); document.querySelector('#contact .resume-link')?.focus({ preventScroll: true }); return; }
     const t = TOUR[k];
-    lenis?.start(); goTo(t.station); setTimeout(() => { if (touring) lenis?.stop(); }, 2300);
+    lenis?.start(); goTo(t.station); clearTimeout(tourSettleTimer); tourSettleTimer = setTimeout(() => { if (touring && runId === tourRun) lenis?.stop(); }, 2300);
     $('#tour-step').textContent = `${k + 1} / ${TOUR.length} · ${STATIONS.find((s) => s.id === t.station)?.label || ''}`;
     $('#tour-text').textContent = t.text;
     const run = (secs) => {
-      if (!touring) return;
+      if (!touring || runId !== tourRun) return;
       const bar = $('#tour-progress'); bar.style.transition = 'none'; bar.style.width = `${(elapsed / total) * 100}%`;
-      requestAnimationFrame(() => { bar.style.transition = `width ${secs}s linear`; bar.style.width = `${Math.min(100, ((elapsed + t.secs) / total) * 100)}%`; });
+      requestAnimationFrame(() => { if (!touring || runId !== tourRun) return; bar.style.transition = `width ${secs}s linear`; bar.style.width = `${Math.min(100, ((elapsed + t.secs) / total) * 100)}%`; });
       elapsed += t.secs; k++; tourTimer = setTimeout(step, secs * 1000);
     };
     if (!$('#tour-voice').checked) { run(t.secs); return; }
     // Narration: my recorded voice (assets/tour-1.mp3 … tour-8.mp3), else the browser voice
     // Pacing: let the camera arrive, breathe, speak (a touch slower), then breathe again before moving on
     const ARRIVE = 1.8, BREATH = 2.6, RATE = 0.94;
-    tourClip?.pause(); tourClip = new Audio(`assets/tour-${k + 1}.mp3`);
-    tourClip.preservesPitch = true; tourClip.playbackRate = RATE;
+    tourClip?.pause(); const clip = new Audio(`assets/tour-${k + 1}.mp3`); tourClip = clip;
+    clip.preservesPitch = true; clip.playbackRate = RATE;
+    const valid = () => touring && runId === tourRun && clip === tourClip;
     let done = false;
-    tourClip.addEventListener('loadedmetadata', () => {
-      if (done) return; done = true;
-      const clip = tourClip;
-      setTimeout(() => { if (!touring || clip !== tourClip) return; if (audio.on) audio.duck(true); clip.playbackRate = RATE; clip.play().catch(() => {}); }, ARRIVE * 1000);
-      run(Math.max(t.secs, ARRIVE + clip.duration / RATE + BREATH));
+    clip.addEventListener('loadedmetadata', () => {
+      if (done || !valid()) return; done = true; clearTimeout(tourMediaTimer);
+      tourArrivalTimer = setTimeout(() => { if (!valid() || !$('#tour-voice').checked) return; audio.duck(true); clip.playbackRate = RATE; clip.play().catch(() => { if (valid()) { audio.duck(false); if ($('#tour-voice').checked) speak(t.text, { rate: 1.03 }); } }); }, ARRIVE * 1000);
+      run(Math.max(t.secs, ARRIVE + (Number.isFinite(clip.duration) ? clip.duration / RATE : t.secs) + BREATH));
     });
-    tourClip.addEventListener('ended', () => audio.duck(false));
-    tourClip.addEventListener('error', () => { if (done) return; done = true; speak(t.text, { rate: 1.03 }); run(t.secs); });
+    clip.addEventListener('ended', () => { if (valid()) audio.duck(false); });
+    const fallback = () => { if (done || !valid()) return; done = true; clearTimeout(tourMediaTimer); if ($('#tour-voice').checked) speak(t.text, { rate: 1.03 }); run(t.secs); };
+    clip.addEventListener('error', fallback);
+    tourMediaTimer = setTimeout(fallback, 4000);
   };
   step();
 }
 $('#tour-skip').addEventListener('click', endTour);
-document.addEventListener('click', (e) => { if (e.target.closest('[data-tour]')) { e.preventDefault(); startTour(); } });
+$('#tour-voice').addEventListener('change', () => {
+  if (!$('#tour-voice').checked) { clearTimeout(tourArrivalTimer); tourClip?.pause(); stopVoice(); }
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) { endTour(); stopVoice(); } });
+document.addEventListener('click', (e) => { if (e.target.closest('[data-tour]')) { e.preventDefault(); $('#section-menu').open = false; touring ? endTour() : startTour(); } });
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && touring) endTour(); });
 
 /* ------------------------------------------------------------------ */
@@ -600,7 +722,7 @@ function renderGuestList() {
 }
 async function loadGuestbook() {
   if (GUESTBOOK_ENDPOINT) {
-    try { const r = await fetch(GUESTBOOK_ENDPOINT); if (r.ok && /json/.test(r.headers.get('content-type') || '')) { const j = await r.json(); guest.mode = 'server'; setNotes(j.notes || []); return; } } catch { /* next */ }
+    try { const j = await fetchJSON(GUESTBOOK_ENDPOINT); if (Array.isArray(j.notes)) { guest.mode = 'server'; setNotes(j.notes); return; } } catch { /* next */ }
   }
   try {
     const db = window.claude?.use ? await window.claude.use('db') : null;
@@ -614,31 +736,43 @@ async function loadGuestbook() {
 }
 async function addNote(n) {
   if (guest.mode === 'server') {
-    const r = await fetch(GUESTBOOK_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(n) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || 'Could not save your star right now.');
-    setNotes(j.notes || [n, ...guest.notes]); return 'Your star is in the sky for every visitor.';
+    const j = await fetchJSON(GUESTBOOK_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(n) });
+    if (Array.isArray(j.notes)) setNotes(j.notes);
+    else if (j.saved === true && typeof j.note?.name === 'string' && typeof j.note?.msg === 'string' && Number.isFinite(j.note.t)) setNotes([j.note, ...guest.notes]);
+    else throw new Error('Could not confirm your star. Please check the guestbook before trying again.');
+    return j.refreshPending ? 'Your star was saved. Reload to refresh the visitor list when the connection recovers.' : 'Your star is in the sky for every visitor.';
   }
   if (guest.mode === 'db') { await guest.db.collection('guestbook').add(n); return 'Your star is in the sky.'; }
-  const list = [n, ...guest.notes]; try { localStorage.setItem('aialo3d-guest', JSON.stringify(list.slice(0, 50))); } catch { /* storage */ }
-  setNotes(list); return 'Your star is saved in this browser (the shared guestbook turns on when the site is deployed).';
+  const list = [n, ...guest.notes];
+  try { localStorage.setItem('aialo3d-guest', JSON.stringify(list.slice(0, 50))); }
+  catch { throw new Error('The shared guestbook and browser storage are unavailable. Please try again later.'); }
+  setNotes(list); return 'The shared guestbook is unavailable. Your star is saved only in this browser.';
 }
 const gb = $('#guestbook');
-const openGuestbook = () => { gb.hidden = false; scrim.classList.add('show'); $('#gb-name').focus({ preventScroll: true }); renderGuestList(); };
-const closeGuestbook = () => { gb.hidden = true; if (!drawer.classList.contains('open')) scrim.classList.remove('show'); };
-document.addEventListener('click', (e) => { if (e.target.closest('[data-guestbook]')) openGuestbook(); });
+const openGuestbook = (opener = document.activeElement) => { showModal(gb, $('#gb-name'), opener); renderGuestList(); $('#gb-status').textContent = guest.mode === 'local' ? 'Shared guestbook unavailable. Notes will be saved only in this browser.' : ''; };
+const closeGuestbook = () => hideModal(gb);
+modalDismissal(gb, closeGuestbook);
+document.addEventListener('click', (e) => { const opener = e.target.closest('[data-guestbook]'); if (opener) openGuestbook(opener); });
 $('#gb-close').addEventListener('click', closeGuestbook);
 scrim.addEventListener('click', closeGuestbook);
-addEventListener('keydown', (e) => { if (e.key === 'Escape' && !gb.hidden) closeGuestbook(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape' && gb.open) closeGuestbook(); });
 $('#gb-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const n = { name: cleanNote($('#gb-name').value, 30), city: cleanNote($('#gb-city').value, 30), msg: cleanNote($('#gb-msg').value, 90), t: Date.now() };
   const st = $('#gb-status');
+  const submit = $('#gb-form button[type="submit"]');
+  if (submit.disabled) return;
   if (!n.name || !n.msg) { st.textContent = 'Add your first name and a short note.'; return; }
   if (BAD.test(`${n.name} ${n.city} ${n.msg}`)) { st.textContent = 'Please keep it kind. Try rewording your note.'; return; }
   st.textContent = 'Placing your star…';
-  try { st.textContent = await addNote(n); $('#gb-msg').value = ''; audio.ping(990, 0.12); guest.onPlaced?.(n); }
-  catch (err) { st.textContent = err.message || 'Could not save your star right now. Please try again later.'; }
+  submit.disabled = true;
+  try { st.textContent = await addNote(n); $('#gb-msg').value = ''; audio.ping(990, 0.12); guest.onPlaced?.(n, st.textContent); }
+  catch (err) {
+    st.textContent = err.name === 'AbortError' ? 'The connection timed out. Your note may have arrived; check the guestbook before trying again.' :
+      err instanceof SyntaxError || err instanceof TypeError ? 'Could not confirm your star. Please check the guestbook before trying again.' :
+      err.message || 'Could not save your star right now. Please try again later.';
+  }
+  finally { submit.disabled = false; }
 });
 loadGuestbook();
 
@@ -656,12 +790,35 @@ addEventListener('keydown', (e) => {
 /* ------------------------------------------------------------------ */
 /* Smooth scroll + station mapping                                     */
 /* ------------------------------------------------------------------ */
-const lenis = reduced ? null : new Lenis({ lerp: 0.09, smoothWheel: true, wheelMultiplier: 0.9 });
+let lenis = reduced ? null : new Lenis({ lerp: 0.09, smoothWheel: true, wheelMultiplier: 0.9 });
+function updateMotion() {
+  endTour(); stopFlight?.();
+  reduced = motionPreference.matches || motionPaused;
+  lenis?.destroy();
+  lenis = reduced ? null : new Lenis({ lerp: 0.09, smoothWheel: true, wheelMultiplier: 0.9 });
+  if (document.querySelector('dialog[open]')) lenis?.stop();
+  document.documentElement.classList.toggle('motion-paused', reduced);
+  if (reduced) finishIntro?.();
+  document.querySelectorAll('[data-motion]').forEach((button) => {
+    button.textContent = motionPreference.matches ? 'Reduced motion' : motionPaused ? 'Resume motion' : 'Pause motion';
+    button.setAttribute('aria-pressed', String(reduced)); button.disabled = motionPreference.matches;
+  });
+}
+motionPreference.addEventListener('change', updateMotion);
+document.querySelectorAll('[data-motion]').forEach((button) => button.addEventListener('click', () => { motionPaused = !motionPaused; updateMotion(); }));
+updateMotion();
 const sections = STATIONS.map((s) => document.querySelector(`[data-station="${s.id}"]`));
 let stops = [];
 function measureStops() {
   const max = document.documentElement.scrollHeight - innerHeight;
-  stops = sections.map((el, i) => (i === 0 ? 0 : Math.min(max, el.dataset.station === 'hero' ? el.offsetTop : el.offsetTop + el.offsetHeight / 2 - innerHeight / 2)));
+  const headroom = Math.max(110, $('.hud-top').getBoundingClientRect().bottom + 12);
+  stops = sections.map((el, i) => {
+    if (i === 0) return 0;
+    const content = el.querySelector('.panel, .hero-copy, .welcome-card') || el;
+    const rect = content.getBoundingClientRect(), top = rect.top + scrollY;
+    const target = rect.height > innerHeight - headroom - 90 ? top - headroom : top + rect.height / 2 - innerHeight / 2;
+    return Math.max(0, Math.min(max, target));
+  });
 }
 function stationFloat(y) {
   if (y <= stops[0]) return 0;
@@ -679,6 +836,8 @@ function goTo(id) {
 }
 measureStops();
 addEventListener('resize', measureStops);
+new ResizeObserver(measureStops).observe($('#track'));
+document.fonts?.ready.then(measureStops);
 
 const railBtns = [...document.querySelectorAll('#rail button')];
 let activeStation = -1;
@@ -686,14 +845,17 @@ function updateHUD(f) {
   const a = Math.round(f);
   if (a !== activeStation) {
     activeStation = a;
-    railBtns.forEach((b, i) => b.classList.toggle('active', i === a));
+    railBtns.forEach((b, i) => { b.classList.toggle('active', i === a); if (i === a) b.setAttribute('aria-current', 'location'); else b.removeAttribute('aria-current'); });
+    document.querySelectorAll('#section-menu [data-jump]').forEach((link) => {
+      if (link.dataset.jump === STATIONS[a]?.id) link.setAttribute('aria-current', 'location'); else link.removeAttribute('aria-current');
+    });
     if (STATIONS[a]?.id !== 'skills') onLeaveSkills?.();
     if (deepReady && STATIONS[a]) { try { history.replaceState(null, '', a === 0 ? location.pathname + location.search : `#${STATIONS[a].id}`); } catch { /* sandboxed */ } }
   }
 }
 // Deep links: 3d.aialo.io/#community opens straight on that stop; the address bar follows the visitor.
 let deepReady = false;
-const hashStation = () => { const h = decodeURIComponent(location.hash.slice(1)); return STATIONS.some((s) => s.id === h) ? h : null; };
+const hashStation = () => { try { const h = decodeURIComponent(location.hash.slice(1)); return STATIONS.some((s) => s.id === h) ? h : null; } catch { return null; } };
 function openDeepLink() {
   const id = hashStation();
   if (id) { measureStops(); goTo(id); setTimeout(() => { deepReady = true; }, 2600); } else deepReady = true;
@@ -712,13 +874,19 @@ try {
 } catch (err) {
   document.documentElement.classList.add('no-webgl');
   document.body.classList.add('no-webgl');
-  $('#loader').classList.add('done'); openDeepLink();
+  window.portfolioBoot?.ready(); openDeepLink();
   $('#hint').innerHTML = 'Your browser could not start 3D, so this is the simple version. <a href="text.html">Read the text version</a>';
   renderer = null;
-  if (lenis) (function raf(t) { lenis.raf(t); updateHUD(stationFloat(scrollY)); requestAnimationFrame(raf); })(0);
+  updateHUD(stationFloat(scrollY));
+  addEventListener('scroll', () => updateHUD(stationFloat(scrollY)), { passive: true });
+  (function raf(t) { lenis?.raf(t); updateHUD(stationFloat(scrollY)); requestAnimationFrame(raf); })(0);
 }
 
-if (renderer) boot();
+if (renderer) boot().catch(() => {
+  renderer.setAnimationLoop(null); lenis?.destroy(); lenis = null;
+  document.documentElement.classList.add('no-webgl');
+  window.portfolioBoot?.fail();
+});
 
 async function boot() {
   const loaderCount = $('#loader-count'), loaderBar = $('#loader-bar');
@@ -749,7 +917,7 @@ async function boot() {
   await Promise.race([imgReady, new Promise((r) => setTimeout(r, 2500))]);
   await progress(0.05, 'Loading type, photos and shaders');
 
-  scene.add(new THREE.HemisphereLight(0x8fa8ff, 0x0a0f24, 0.6));
+  const hemisphere = new THREE.HemisphereLight(0x8fa8ff, 0x0a0f24, 0.6); scene.add(hemisphere);
   const key = new THREE.DirectionalLight(0xffe2b0, 1.2); key.position.set(10, 20, 10); scene.add(key);
 
   /* ---------- sky + stars ---------- */
@@ -763,7 +931,7 @@ async function boot() {
         float h = vDir.y;
         vec3 nTop = vec3(0.004,0.007,0.025), nHor = vec3(0.025,0.04,0.11);
         vec3 dTop = vec3(0.03,0.04,0.12), dHor = vec3(0.5,0.24,0.14);
-        nTop = mix(nTop, vec3(0.03,0.07,0.2), uDay); nHor = mix(nHor, vec3(0.12,0.2,0.38), uDay); nHor = mix(nHor, vec3(0.32,0.16,0.14), uWarm);
+        nTop = mix(nTop, vec3(0.07,0.22,0.42), uDay); nHor = mix(nHor, vec3(0.38,0.60,0.72), uDay); nHor = mix(nHor, vec3(0.48,0.21,0.12), uWarm);
         vec3 top = mix(nTop, dTop, uDawn), hor = mix(nHor, dHor, uDawn);
         vec3 c = mix(hor, top, smoothstep(-0.02, 0.45, h));
         float s = max(dot(vDir, uSun), 0.);
@@ -775,12 +943,13 @@ async function boot() {
   sky.frustumCulled = false; scene.add(sky);
   // The sky follows the visitor's own clock: night, sunrise, daytime blue, sunset
   function applyLocalSky() {
-    const d = new Date(), h = d.getHours() + d.getMinutes() / 60;
-    const day = Math.max(0, Math.min(1, (Math.min(h - 6.5, 19 - h)) / 2.5)) * 0.45;
-    const warm = Math.max(0, 1 - Math.abs(h - 6.8) / 1.4) * 0.7 + Math.max(0, 1 - Math.abs(h - 19.2) / 1.4) * 0.7;
-    U.uDay.value = day; U.uWarm.value = Math.min(0.7, warm);
-    const phase = warm > 0.2 ? (h < 12 ? 'sunrise' : 'sunset') : day > 0.1 ? 'daytime sky' : 'night sky';
+    const { daylight, warmth, phase } = localAtmosphere();
+    U.uDay.value = daylight; U.uWarm.value = warmth;
+    hemisphere.intensity = 0.6 + daylight * 0.7;
+    key.intensity = 1.2 + daylight * 0.65;
+    key.color.setHex(warmth > 0.25 ? 0xffc58b : daylight > 0.3 ? 0xfff0d8 : 0xffe2b0);
     skyPhase = phase;
+    document.documentElement.dataset.skyPhase = phase;
   }
   applyLocalSky(); setInterval(applyLocalSky, 60000);
 
@@ -921,7 +1090,7 @@ async function boot() {
       const tag = label(n.name, n.city || 'a visitor', { h: 1.0 }); tag.position.y = -1.05; g.add(tag);
       const hit = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), new THREE.MeshBasicMaterial({ visible: false })); g.add(hit);
       register(hit, { label: `${n.name}${n.city ? ` · ${n.city}` : ''}: “${n.msg}”`, click: () => { toast(`${n.name}${n.city ? ` from ${n.city}` : ''}: “${n.msg}”`); audio.ping(1046, 0.08); },
-        hover: (on) => gsap.to(star.scale, { x: size * (on ? 1.5 : 1), y: size * (on ? 1.5 : 1), duration: 0.3 }) });
+        hover: (on) => tween(star.scale, { x: size * (on ? 1.5 : 1), y: size * (on ? 1.5 : 1), duration: 0.3 }) });
       visItems.push({ g, star, tag, size, seed: hash01(n.name, 7) });
     });
     if (pts.length > 1) {
@@ -934,9 +1103,9 @@ async function boot() {
     if (visCount) visCount.textContent = list.length ? `${list.length} ${list.length === 1 ? 'star' : 'stars'}${places ? ` from ${places} ${places === 1 ? 'place' : 'places'}` : ''}` : 'No stars yet';
   }
   guest.onChange = (list) => { buildGuestStars(list); buildVisitorSky(list); }; guest.onChange(guest.notes);
-  guest.onPlaced = () => {
-    closeGuestbook(); goTo('stars'); toast('Your star is in the sky.');
-    setTimeout(() => { const it = visItems[0]; if (it) gsap.fromTo(it.star.scale, { x: 0.1, y: 0.1 }, { x: it.size * 1.8, y: it.size * 1.8, duration: 1.2, yoyo: true, repeat: 1, ease: 'power3.out' }); audio.arrive(); }, 2400);
+  guest.onPlaced = (_note, confirmation) => {
+    closeGuestbook(); goTo('stars'); toast(confirmation);
+    setTimeout(() => { const it = visItems[0]; if (it && !reduced) gsap.fromTo(it.star.scale, { x: 0.1, y: 0.1 }, { x: it.size * 1.8, y: it.size * 1.8, duration: 1.2, yoyo: true, repeat: 1, ease: 'power3.out' }); audio.arrive(); }, 2400);
   };
 
   const core = new THREE.Group(); core.position.copy(P.hero); scene.add(core);
@@ -972,7 +1141,7 @@ async function boot() {
   core.add(coreHit);
   register(coreHit, {
     label: 'Signal core · click to pulse',
-    hover: (on) => gsap.to(coreU.uHover, { value: on ? 1 : 0, duration: 0.6 }),
+    hover: (on) => tween(coreU.uHover, { value: on ? 1 : 0, duration: 0.6 }),
     click: () => { audio.ping(520); gsap.fromTo(coreU.uPulse, { value: 1 }, { value: 0, duration: 1.6, ease: 'power3.out' }); },
   });
   await progress(0.32, 'Igniting the signal core');
@@ -1021,7 +1190,7 @@ async function boot() {
     ring.position.copy(pos).multiplyScalar(1.005); ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), pos.clone().normalize()); globeInner.add(ring);
     const l = label(name, `${sub} · explore ↗`, { h: 0.85 }); l.position.copy(pos).multiplyScalar(1.5); globeInner.add(l);
     const key = name === ORIGIN.label ? 'place:uganda' : 'place:fredericksburg';
-    const entry = { label: `${name} · open`, click: () => openDrawer(key), hover: (on) => gsap.to(l.scale, { x: l.userData.sx * (on ? 1.12 : 1), y: l.userData.sy * (on ? 1.12 : 1), duration: 0.3 }) };
+    const entry = { label: `${name} · open`, click: () => openDrawer(key), hover: (on) => tween(l.scale, { x: l.userData.sx * (on ? 1.12 : 1), y: l.userData.sy * (on ? 1.12 : 1), duration: 0.3 }) };
     l.userData.sx = l.scale.x; l.userData.sy = l.scale.y; register(l, entry); register(m, entry);
     return ring;
   });
@@ -1032,7 +1201,7 @@ async function boot() {
   globeInner.quaternion.setFromUnitVectors(A.clone().add(B).normalize(), faceDir);
   const globeHit = new THREE.Mesh(new THREE.SphereGeometry(R * 1.1, 16, 12), new THREE.MeshBasicMaterial({ visible: false }));
   globe.add(globeHit);
-  register(globeHit, { label: 'The journey · open the story', click: () => openDrawer('journey'), hover: (on) => gsap.to(globe.scale, { x: on ? 1.04 : 1, y: on ? 1.04 : 1, z: on ? 1.04 : 1, duration: 0.6 }) });
+  register(globeHit, { label: 'The journey · open the story', click: () => openDrawer('journey'), hover: (on) => tween(globe.scale, { x: on ? 1.04 : 1, y: on ? 1.04 : 1, z: on ? 1.04 : 1, duration: 0.6 }) });
   // Waving flags planted at both ends of the arc
   const faceLocal = faceDir.clone().applyQuaternion(globeInner.quaternion.clone().invert());
   function plantFlag(canvasEl, pos) {
@@ -1086,7 +1255,7 @@ async function boot() {
       new THREE.LineDashedMaterial({ color: SIGNAL, dashSize: 0.12, gapSize: 0.1, transparent: true, opacity: 0.7 }));
     tether.computeLineDistances(); globe.add(tether);
     const entry = { label: 'UMW · open campus leadership', click: () => openDrawer('exp:umw'),
-      hover: (on) => { gsap.to(pcU.uHover, { value: on ? 1 : 0, duration: 0.4 }); gsap.to(postcard.scale, { x: on ? 1.06 : 1, y: on ? 1.06 : 1, z: 1, duration: 0.5 }); } };
+      hover: (on) => { tween(pcU.uHover, { value: on ? 1 : 0, duration: 0.4 }); tween(postcard.scale, { x: on ? 1.06 : 1, y: on ? 1.06 : 1, z: 1, duration: 0.5 }); } };
     register(card, entry); linkHover['exp:umw'] = entry.hover;
   }
 
@@ -1179,18 +1348,22 @@ async function boot() {
   });
   const flight = { on: false, t0: 0, dur: 23, got: 0 };
   const fh = { hud: $('#flight-hud'), end: $('#flight-end') };
+  let flightTimer = 0;
+  stopFlight = () => { clearTimeout(flightTimer); flightTimer = 0; endFlight(false); };
   function collectDream(d) {
     if (!flight.on || d.got) return;
     d.got = true; flight.got++; audio.ping(880 + flight.got * 110, 0.14);
-    gsap.to(d.orb.scale, { x: 2.2, y: 2.2, z: 2.2, duration: 0.5, ease: 'back.out(3)' }); gsap.to(d.orb.material, { opacity: 0, duration: 0.8, delay: 0.3 });
-    gsap.to(d.tag.material, { opacity: 1, duration: 0.4 }); d.halo.visible = false;
+    tween(d.orb.scale, { x: 2.2, y: 2.2, z: 2.2, duration: 0.5, ease: 'back.out(3)' }); tween(d.orb.material, { opacity: 0, duration: 0.8, delay: 0.3 });
+    tween(d.tag.material, { opacity: 1, duration: 0.4 }); d.halo.visible = false;
     $('#fh-dreams').textContent = `Dreams collected ${flight.got} / ${DREAMS.length}`; toast(`${d.word} ✓`);
   }
   function startFlight() {
-    if (flight.on) return;
-    closeDrawer(); fh.end.hidden = true; lenis?.start(); goTo('journey');
-    setTimeout(() => {
-      soundOn(); lenis?.stop();
+    if (flight.on || flightTimer) return;
+    endTour(); if (!askPanel.hidden) closeAsk();
+    closeDrawer(); hideModal(fh.end); lenis?.start(); goTo('journey');
+    flightTimer = setTimeout(() => {
+      flightTimer = 0;
+      lenis?.stop();
       flight.on = true; flight.t0 = clock.getElapsed(); flight.got = 0;
       dreamOrbs.forEach((d) => { d.got = false; d.g.visible = true; d.orb.scale.setScalar(1); d.orb.material.opacity = 1; d.tag.material.opacity = 0; d.halo.visible = true; });
       plane.visible = true; comet.visible = trail.visible = false; arcU.uDraw.value = 0;
@@ -1207,7 +1380,7 @@ async function boot() {
     audio.arrive();
     const got = dreamOrbs.filter((d) => d.got).map((d) => d.word);
     $('#fe-text').textContent = `${got.length ? `You collected ${got.length} of ${DREAMS.length} dreams: ${got.join(', ')}. ` : ''}In 2022 I spent 23 hours in the air to start a new life in the United States, filled with hope and dreams. That flight led to a first-generation degree, four internships and this site.`;
-    fh.end.hidden = false; $('#fe-again').focus({ preventScroll: true });
+    showModal(fh.end, $('#fe-again'));
   }
   function updateFlight() {
     if (!flight.on) return;
@@ -1225,9 +1398,10 @@ async function boot() {
   }
   document.addEventListener('click', (e) => { if (e.target.closest('[data-flight]')) { e.preventDefault(); startFlight(); } });
   $('#fh-skip').addEventListener('click', () => endFlight(false));
-  $('#fe-again').addEventListener('click', () => { fh.end.hidden = true; startFlight(); });
-  $('#fe-close').addEventListener('click', () => { fh.end.hidden = true; lenis?.start(); });
-  addEventListener('keydown', (e) => { if (e.key === 'Escape') { if (flight.on) endFlight(false); else if (!fh.end.hidden) { fh.end.hidden = true; lenis?.start(); } } });
+  $('#fe-again').addEventListener('click', () => { hideModal(fh.end); startFlight(); });
+  $('#fe-close').addEventListener('click', () => hideModal(fh.end));
+  modalDismissal(fh.end, () => hideModal(fh.end));
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && (flight.on || flightTimer)) stopFlight(); });
   await progress(0.45, 'Plotting Uganda → Fredericksburg · 11,619 km');
 
   /* ================================================================ */
@@ -1257,7 +1431,7 @@ async function boot() {
     scene.add(g);
     const entry = {
       label: `${e.org} · open role`,
-      hover: (on) => { gsap.to(u.uHover, { value: on ? 1 : 0, duration: 0.4 }); gsap.to(g.position, { y: on ? -3.6 : -4, duration: 0.6, ease: 'power3.out' }); },
+      hover: (on) => { tween(u.uHover, { value: on ? 1 : 0, duration: 0.4 }); tween(g.position, { y: on ? -3.6 : -4, duration: 0.6, ease: 'power3.out' }); },
       click: () => openDrawer(`exp:${e.id}`),
     };
     register(m, entry); linkHover[`exp:${e.id}`] = entry.hover;
@@ -1322,7 +1496,7 @@ async function boot() {
   const proofLabel = label('ProofMode', '2nd Place · UMW Eagle Egg Pitch'); proofLabel.position.set(0, 3.4, 0); proof.add(proofLabel);
   const proofHit = new THREE.Mesh(new THREE.BoxGeometry(loaded.proofmode ? 7.4 : 3.6, 5.2, 2.6), new THREE.MeshBasicMaterial({ visible: false })); proof.add(proofHit);
   const proofEntry = { label: 'ProofMode · open case study', click: () => openDrawer('proj:proofmode'),
-    hover: (on) => { gsap.to(docU.uHover, { value: on ? 1 : 0, duration: 0.4 }); gsap.to(proof.rotation, { y: on ? -0.15 : -0.35, duration: 0.8 }); } };
+    hover: (on) => { tween(docU.uHover, { value: on ? 1 : 0, duration: 0.4 }); tween(proof.rotation, { y: on ? -0.15 : -0.35, duration: 0.8 }); } };
   register(proofHit, proofEntry); linkHover['proj:proofmode'] = proofEntry.hover;
 
   const rag = new THREE.Group(); rag.position.set(P.projects.x + 7.5, -0.6, P.projects.z - 8); scene.add(rag);
@@ -1363,7 +1537,7 @@ async function boot() {
     const l = label(d.name, `${d.agent} · ${d.vertical}`, { accent: `#${col.getHexString()}`, h: 0.62 }); l.position.y = 2.8 + (i % 2) * 0.8; g.add(l);
     const hit = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 5.4, 8), new THREE.MeshBasicMaterial({ visible: false })); hit.position.y = 0; g.add(hit);
     const entry = { label: `${d.agent} · ${d.name}`, click: () => openDrawer(`demo:${d.id}`),
-      hover: (on) => { gsap.to(gem.scale, { x: on ? 1.35 : 1, y: on ? 1.35 : 1, z: on ? 1.35 : 1, duration: 0.5, ease: 'back.out(2)' }); gsap.to(gem.material, { emissiveIntensity: on ? 2.6 : 1.4, duration: 0.4 }); } };
+      hover: (on) => { tween(gem.scale, { x: on ? 1.35 : 1, y: on ? 1.35 : 1, z: on ? 1.35 : 1, duration: 0.5, ease: 'back.out(2)' }); tween(gem.material, { emissiveIntensity: on ? 2.6 : 1.4, duration: 0.4 }); } };
     register(hit, entry); linkHover[`demo:${d.id}`] = entry.hover;
     return { gem, halo, i };
   });
@@ -1429,6 +1603,7 @@ async function boot() {
       dummy.position.copy(livePos[i]); dummy.scale.setScalar(cur.scl[i]); dummy.updateMatrix(); nodeMesh.setMatrixAt(i, dummy.matrix);
       nodeMesh.setColorAt(i, tmpCol.copy(baseCols[i]).multiplyScalar(cur.bright[i]));
       const L = nodeLabels[i], k = 0.7 + cur.scl[i] * 0.3;
+      L.visible = innerWidth > 1100 && consFocus < 0;
       L.position.copy(livePos[i]).add(labelOff.set(0, 0.3 + 0.26 * cur.scl[i], 0.05)); L.scale.copy(L.userData.base).multiplyScalar(k);
       L.material.opacity = starEls.has(i) ? 0 : Math.min(1, 0.1 + cur.bright[i] * 0.85);
     });
@@ -1447,12 +1622,20 @@ async function boot() {
     }
   }
   const card = $('#skill-card'), starLayer = $('#star-labels'), starEls = new Map(), projV = new THREE.Vector3();
+  let lastLabels = 0;
   function placeStarLabels() {
+    const now = performance.now(); if (now - lastLabels < 100) return; lastLabels = now;
+    const obstacles = [...document.querySelectorAll('.hud-top, #experience-controls, #skills .panel, #skill-card, #ask:not([hidden]), #tour:not([hidden])')]
+      .filter((el) => !el.hidden && el.getClientRects().length)
+      .map((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    const labels = [];
     starEls.forEach((el, j) => {
       projV.copy(livePos[j]); cons.localToWorld(projV); projV.project(camera);
-      if (projV.z > 1) { el.style.opacity = '0'; return; }
-      const x = (projV.x + 1) / 2 * innerWidth, y = (1 - projV.y) / 2 * innerHeight;
-      el.style.opacity = '1'; el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, ${j === consFocus ? '-190%' : '-165%'})`;
+      el.style.opacity = '0';
+      labels.push({ id: j, x: (projV.x + 1) / 2 * innerWidth, y: (1 - projV.y) / 2 * innerHeight, width: el.offsetWidth, height: el.offsetHeight, behind: projV.z > 1 || projV.z < -1 });
+    });
+    placeLabels(labels, obstacles, { width: innerWidth, height: innerHeight }, innerWidth <= 720 ? 3 : 7).forEach(({ id, x, y }) => {
+      const el = starEls.get(id); el.style.opacity = '1'; el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
     });
   }
   function setFocus(i) {
@@ -1479,7 +1662,7 @@ async function boot() {
   onMissClick = () => { if (consFocus >= 0) setFocus(-1); };
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && consFocus >= 0 && !drawer.classList.contains('open')) setFocus(-1); });
   function stepGraph(dt) {
-    const k = 1 - Math.exp(-dt * 7); let moving = false;
+    const k = reduced ? 1 : 1 - Math.exp(-dt * 7); let moving = false;
     for (const key of ['lift', 'scl', 'bright', 'pull']) for (let j = 0; j < N; j++) { const d = tgt[key][j] - cur[key][j]; if (Math.abs(d) > 0.002) { cur[key][j] += d * k; moving = true; } else cur[key][j] = tgt[key][j]; }
     focusLines.material.opacity += ((consFocus >= 0 ? 1 : 0) - focusLines.material.opacity) * k;
     if (moving || graphDirty) { writeGraph(); graphDirty = false; }
@@ -1528,7 +1711,7 @@ async function boot() {
     const dot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(3) })); comm.add(dot);
     const hit = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 6), new THREE.MeshBasicMaterial({ visible: false })); hit.position.z = 2.3; g.add(hit);
     const entry = { label: `${b.year} · ${b.city} · open`, click: () => openDrawer(`build:${b.id}`),
-      hover: (on) => gsap.to(head.scale, { x: on ? 1.6 : 1, y: on ? 1.6 : 1, z: on ? 1.6 : 1, duration: 0.4, ease: 'back.out(2)' }) };
+      hover: (on) => tween(head.scale, { x: on ? 1.6 : 1, y: on ? 1.6 : 1, z: on ? 1.6 : 1, duration: 0.4, ease: 'back.out(2)' }) };
     register(hit, entry); register(l, entry); linkHover[`build:${b.id}`] = entry.hover;
     return { head, ring, curve, dot, i };
   });
@@ -1543,10 +1726,11 @@ async function boot() {
       const r = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.22, 4), roof); r.rotation.x = Math.PI / 2; r.rotation.y = Math.PI / 4; r.position.z = 0.41; h.add(r);
       const a = (k / 3) * Math.PI * 2 + 0.6; h.position.copy(base).add(new THREE.Vector3(Math.cos(a) * 0.85, Math.sin(a) * 0.85, 0)); h.scale.setScalar(0.001); h.visible = false; comm.add(h); houses.push(h);
     } }); }
-  onHabitatEgg = () => houses.forEach((h, i) => { h.visible = true; gsap.fromTo(h.scale, { x: 0.001, y: 0.001, z: 0.001 }, { x: 1.3, y: 1.3, z: 1.3, duration: 0.7, delay: i * 0.12, ease: 'back.out(2.5)', onStart: () => audio.ping(660 + (i % 4) * 110, 0.06) }); });
+  onHabitatEgg = () => houses.forEach((h, i) => { h.visible = true; gsap.fromTo(h.scale, { x: 0.001, y: 0.001, z: 0.001 }, { x: 1.3, y: 1.3, z: 1.3, duration: reduced ? 0 : 0.7, delay: reduced ? 0 : i * 0.12, ease: 'back.out(2.5)', onStart: () => audio.ping(660 + (i % 4) * 110, 0.06) }); });
   function updateCommunity(t) {
     buildPins.forEach(({ head, ring, curve, dot, i }) => {
-      head.rotation.z += 0.02; const s = 1 + ((t * 0.7 + i * 0.3) % 1) * 1.8; ring.scale.setScalar(s); ring.material.opacity = 1 - ((t * 0.7 + i * 0.3) % 1);
+      if (!reduced) head.rotation.z += 0.02;
+      const s = 1 + ((t * 0.7 + i * 0.3) % 1) * 1.8; ring.scale.setScalar(s); ring.material.opacity = 1 - ((t * 0.7 + i * 0.3) % 1);
       curve.getPoint((t * 0.22 + i * 0.25) % 1, dot.position);
     });
   }
@@ -1622,7 +1806,7 @@ async function boot() {
   pad.rotation.x = Math.PI / 2; pad.position.y = -4.3; holo.add(pad);
   const holoLabel = label(PROFILE.name, PROFILE.mantra, { h: 0.9 }); holoLabel.position.y = 2.8; holo.add(holoLabel);
   const holoHit = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 4.25), new THREE.MeshBasicMaterial({ visible: false, side: THREE.DoubleSide })); holo.add(holoHit);
-  register(holoHit, { label: 'Aloysious Kabonge · first light', hover: (on) => gsap.to(holoU.uHover, { value: on ? 1 : 0, duration: 0.4 }), click: () => audio.ping(880) });
+  register(holoHit, { label: 'Aloysious Kabonge · first light', hover: (on) => tween(holoU.uHover, { value: on ? 1 : 0, duration: 0.4 }), click: () => audio.ping(880) });
   await progress(0.95, 'Waiting for first light');
 
   /* ================================================================ */
@@ -1686,11 +1870,12 @@ async function boot() {
     
   }
   applyTier();
-  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); renderer.setAnimationLoop(null); toast('Graphics reset, reloading…'); }, false);
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); renderer.setAnimationLoop(null); lenis?.destroy(); lenis = null; window.portfolioBoot?.fail(); }, false);
   canvas.addEventListener('webglcontextrestored', () => location.reload(), false);
   
 
   addEventListener('resize', () => {
+    graphDirty = true; lastLabels = 0;
     lineMats.forEach((m) => m.resolution.set(innerWidth, innerHeight));
     camera.aspect = innerWidth / innerHeight; renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
     if ((innerWidth < 720) !== narrow) buildPath(); else camera.updateProjectionMatrix();
@@ -1748,11 +1933,12 @@ async function boot() {
   await progress(1, 'Ready');
   let camT = 0; // smoothed path progress
   const intro = { k: reduced ? 1 : 0 };
+  finishIntro = () => { gsap.killTweensOf(intro); intro.k = 1; gsap.killTweensOf('.welcome-card > *'); gsap.set('.welcome-card > *', { clearProps: 'transform,opacity' }); };
   const startPos = new THREE.Vector3(0, 9, 48);
-  $('#loader').classList.add('done');
+  window.portfolioBoot?.ready();
   setTimeout(openDeepLink, hashStation() ? 900 : 0);
   if (!reduced) {
-    gsap.to(intro, { k: 1, duration: 3.2, ease: 'power3.inOut' });
+    tween(intro, { k: 1, duration: 3.2, ease: 'power3.inOut' });
     gsap.from('.welcome-card > *', { y: 24, opacity: 0, duration: 1.1, stagger: 0.1, delay: 0.6, ease: 'power3.out' });
   }
 
@@ -1760,14 +1946,16 @@ async function boot() {
   try { renderer.compile(scene, camera); } catch { /* optional */ }
 
   /* ---------- loop ---------- */
-  const fogNight = NIGHT.clone(), fogDawn = new THREE.Color(0x24141f);
+  const fogNight = NIGHT.clone(), fogDay = new THREE.Color(0x365879), fogDawn = new THREE.Color(0x24141f);
   const tmpP = new THREE.Vector3(), tmpL = new THREE.Vector3();
-  let frames = 0, slow = 0, watched = false, arcDrawn = false, lastKm = -1;
+  let frames = 0, slow = 0, watched = false, arcDrawn = false, lastKm = -1, animationTime = 0;
   const kmEl = $('#km-n');
   const ease = (x) => { const s = THREE.MathUtils.smoothstep(x, 0.12, 0.88); return s; };
 
   renderer.setAnimationLoop(() => {
-    clock.update(); const raw = clock.getDelta(), dt = Math.min(raw, 0.05), dtCam = Math.min(raw, 0.25), t = clock.getElapsed();
+    clock.update();
+    if (document.hidden) return;
+    const raw = clock.getDelta(), dt = reduced ? 0 : Math.min(raw, 0.05), dtCam = Math.min(raw, 0.25), t = animationTime += dt;
     U.uTime.value = t;
     if (lenis) lenis.raf(performance.now());
     const y = lenis ? lenis.scroll : scrollY;
@@ -1778,7 +1966,8 @@ async function boot() {
     // eased station progress with a short dwell at every station
     const i = Math.min(Math.floor(f), STATIONS.length - 2), frac = f - i;
     const target = (i + ease(frac)) / (STATIONS.length - 1);
-    camT += (target - camT) * (1 - Math.exp(-dtCam * (reduced ? 12 : 3.2)));
+    if (reduced) camT = target;
+    else camT += (target - camT) * (1 - Math.exp(-dtCam * 3.2));
 
     posCurve.getPoint(THREE.MathUtils.clamp(camT, 0, 1), tmpP);
     lookCurve.getPoint(THREE.MathUtils.clamp(camT, 0, 1), tmpL);
@@ -1795,7 +1984,7 @@ async function boot() {
     // dawn at the end of the journey
     const dawn = THREE.MathUtils.smoothstep(f, 7.9, 9);
     U.uDawn.value = dawn;
-    scene.fog.color.copy(fogNight).lerp(fogDawn, dawn * 0.8);
+    scene.fog.color.copy(fogNight).lerp(fogDay, U.uDay.value * 0.8).lerp(fogDawn, Math.max(dawn * 0.8, U.uWarm.value * 0.4));
     scene.fog.density = 0.0105 - dawn * 0.003;
     renderer.toneMappingExposure = 1.0;
 
@@ -1813,7 +2002,7 @@ async function boot() {
       if (postcard) { postcard.lookAt(camera.position); postcard.position.y += Math.sin(t * 0.9) * 0.002; }
       globe.rotation.y = Math.sin(t * 0.25) * 0.18;
       markers.forEach((m, k) => { const s = 1 + ((t * 0.8 + k * 0.5) % 1) * 1.6; m.scale.setScalar(s); m.material.opacity = 1 - ((t * 0.8 + k * 0.5) % 1); });
-      if (!arcDrawn && f > 0.4) { arcDrawn = true; arcU.uDraw.value = 0; gsap.to(arcU.uDraw, { value: 1, duration: reduced ? 0 : 2.4, ease: 'power2.inOut' }); }
+      if (!arcDrawn && f > 0.4) { arcDrawn = true; arcU.uDraw.value = 0; tween(arcU.uDraw, { value: 1, duration: reduced ? 0 : 2.4, ease: 'power2.inOut' }); }
     }
     if (near(P.experience)) towers.forEach(({ cap }, k) => { cap.rotation.y += dt * 0.8; cap.position.y = EXPERIENCE[k].height + 0.8 + Math.sin(t * 1.4 + k) * 0.15; });
     if (near(P.projects)) {

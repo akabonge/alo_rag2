@@ -17,7 +17,7 @@ This repository is the production 3D portfolio. Read `docs/OFFICE.md` for the te
 - `src/page.html` is the main template. Regenerate `src/index.html` after editing it. Generate `src/text.html` after content changes. Preserve the favicon and ProofMode links.
 - `src/ask.js` is shared by browser and server. Preserve its query-free `./content.js` import, profile aliases and grounding filter.
 - `api/ask.js` calls Anthropic; `api/guestbook.js` uses Redis. Keep secrets server-side. Do not publish unsupported product/security claims.
-- `src/proofmode.html` is a standalone page. `docs/ARCHITECTURE.md` documents the deployed design. The historical `test/` directory contains generators, not a test suite.
+- `src/proofmode.html` is a standalone page. `docs/ARCHITECTURE.md` documents the deployed design. `test/` contains page generators, mocked Node tests and the Playwright browser regression harness; see `docs/QUALITY-PLAN.md`.
 
 ## Validate proportionately
 

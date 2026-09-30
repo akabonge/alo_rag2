@@ -41,12 +41,18 @@ table { width:100%; border-collapse: collapse; font-size: .95rem; } td, th { tex
 .cta { display:flex; gap:12px; flex-wrap:wrap; margin-top: 18px; }
 .cta a { display:inline-block; padding: 10px 16px; border: 1px solid var(--accent); border-radius: 999px; text-decoration: none; font-weight: 600; }
 .tags { color: var(--muted); font-size: .9rem; }
+* { box-sizing: border-box; }
+body { overflow-wrap: anywhere; }
+:focus-visible { outline: 3px solid var(--signal); outline-offset: 3px; }
+.top a, .cta a { min-height: 44px; display: inline-flex; align-items: center; }
+.skip-link { position: absolute; left: 16px; top: -100px; padding: 10px 16px; background: var(--bg); border: 2px solid var(--signal); }
+.skip-link:focus { top: 8px; }
 </style>
-</head><body><main>
+</head><body><a class="skip-link" href="#case-study">Skip to case study</a><main>
 <p class="top"><a href="./">← Back to the 3D site</a> <a href="text.html">Text version</a> <a href="https://aialo.io">2D site</a></p>
 
 <p class="eyebrow">Case study · Mar 2026 – present</p>
-<h1>ProofMode: prove the process, don’t guess the author</h1>
+<h1 id="case-study" tabindex="-1">ProofMode: prove the process, don’t guess the author</h1>
 <p class="lede">Students keep writing in Google Docs or Word and save lightweight checkpoints in ProofMode as they go. ProofMode turns those checkpoints into a PDF evidence summary with an integrity stamp, so instructors can see how a paper actually came together instead of trusting an AI detector’s guess.</p>
 
 <ul class="facts">
@@ -107,10 +113,10 @@ table { width:100%; border-collapse: collapse; font-size: .95rem; } td, th { tex
 <p>Student writing is personal, so security was a requirement from the start, not an add-on:</p>
 <table>
   <tr><th>Passwords</th><td>Hashed with Argon2, a modern memory-hard algorithm.</td></tr>
-  <tr><th>Sessions</th><td>Signed JWTs in cookies, with CSRF protection on every request that changes data.</td></tr>
-  <tr><th>Essay text</th><td>Field-level encryption with Fernet before it’s stored, so the database never holds readable essays.</td></tr>
+  <tr><th>Sessions</th><td>Signed JWTs in cookies and CSRF tokens for requests that change data.</td></tr>
+  <tr><th>Essay text</th><td>Fernet field-level encryption for stored essay text.</td></tr>
   <tr><th>Sharing</th><td>Revocable, token-based links: the student decides who sees the proof, and for how long.</td></tr>
-  <tr><th>Web hardening</th><td>Security-header middleware on every response.</td></tr>
+  <tr><th>Web hardening</th><td>Security-header middleware in the API.</td></tr>
 </table>
 
 <h2>Results</h2>

@@ -7,3 +7,5 @@ node_modules/
 *.local.json
 .office-cache/
 *.log
+test-results/
+audit-output/
