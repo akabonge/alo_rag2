@@ -53,6 +53,27 @@ flowchart LR
 
 Both generated HTML pages are committed. Vercel's configured build command is null, so editing a template alone does not regenerate the deployed page. The favicon is referenced in both page sources to survive regeneration.
 
+### Progressive photos
+
+```mermaid
+flowchart TD
+    HTML[HTML parsed] --> Badge[Small square portrait / reserved AK fallback]
+    Modules[Modules and fonts] --> Boot[Procedural scene construction]
+    Boot --> Navigation[Navigation and render loop]
+    Navigation --> Near[Approach Journey / Projects / Contact]
+    Near --> Media[media.js: one request and update per scene photo]
+    Media --> Late[Attach campus postcard / ProofMode screen / finale portrait]
+    Open[Open a detail drawer] --> Photo[Browser loads its photo or video poster]
+    Media -->|Missing image| StandIn[Keep procedural stand-in]
+    Lost[Failed boot or lost WebGL context] --> Ignore[Ignore pending scene enhancements]
+```
+
+[`media.js`](../src/media.js) removes photos from the boot dependency chain. The square welcome portrait starts from HTML, independently of modules and other photos; its space and profile button remain available if the image fails. The three scene photos start within one station of their destination, narrowed to half a station when the browser reports Save-Data. Detail-only images start when their drawer opens. The queue runs from the existing station loop, so deep links and navigation jumps use the current scroll position without a separate observer.
+
+Each scene enhancement runs once after its dependent objects exist. UMW adds its clickable postcard; ProofMode adds the screenshot and widens its hit target; the finale repaints its existing texture. Missing photos retain procedural content. Boot failure or context loss suppresses late changes. Browsers without WebGL still have drawer photos and the welcome portrait, without downloading unused scene textures.
+
+This reduces initial media transfer; it does not eliminate module discovery, scene construction, shader compilation, first-render work, or the welcome animation. The measured baseline and subsequent comparison must distinguish these stages. See [Claude's authored design and provenance](handoffs/7-claude-loading.md) and the integration handoff for verification.
+
 ## 3. Ask Alo: source-grounded answers, step by step
 
 ```mermaid
@@ -117,7 +138,7 @@ flowchart TD
     List --> Stars[Browser list and star scene]
     Read[GET guestbook API] --> List
     Admin[DELETE with admin key] --> Remove[Remove note by timestamp]
-    Remove --> StoreList[Rewrite remaining Redis list]
+    Remove --> StoreList[Remove only the matching stored note]
 ```
 
 [`api/guestbook.js`](../api/guestbook.js) uses the Redis REST pipeline directly. Notes include name, city, message and timestamp. Names are capped at 30 characters, cities at 30 and messages at 90. The API rejects a count above three for each IP; the Redis counter expiry is reset to one hour on every attempted valid submission, so it is not a fixed calendar-hour window.
