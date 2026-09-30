@@ -4,6 +4,8 @@ An interactive portfolio for Aloysious Kabonge: a 3D journey through his backgro
 
 **[Explore the architecture, diagrams and complete technology inventory →](docs/ARCHITECTURE.md)**
 
+**[Open the AI office: Claude, Codex and Grok workspaces →](docs/OFFICE.md)**
+
 The site uses plain JavaScript ES modules, Three.js, GSAP and Lenis. Vercel serves the static portfolio and two serverless API functions. The configured canonical URL is `https://3d.aialo.io/`; the companion 2D portfolio is `https://aialo.io/`.
 
 ## How it fits together

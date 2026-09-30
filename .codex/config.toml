@@ -1,0 +1,3 @@
+# Project-scoped selection for this office; personal/global settings are unchanged.
+model = "gpt-6-astra"
+model_reasoning_effort = "ultra"

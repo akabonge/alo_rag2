@@ -1,0 +1,31 @@
+name: Agent task
+description: Assign a bounded office task with a clear owner and completion criteria.
+title: "[Task] "
+labels: ["office:task"]
+body:
+  - type: dropdown
+    id: owner
+    attributes:
+      label: Agent desk
+      options: [Claude, Codex, Grok]
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Intended result
+      description: Describe the user-visible result and scope.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable checks and any files that must be coordinated.
+    validations:
+      required: true
+  - type: textarea
+    id: handoff
+    attributes:
+      label: Context and handoff
+      description: Link sources, previous work, or related PRs. Do not include credentials.
