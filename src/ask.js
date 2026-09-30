@@ -42,7 +42,7 @@ export function buildCorpus() {
   c.push({ station: 'demos', src: 'Live demos', text: `Five live AI demos for local businesses: ${DEMOS.map((d) => `${d.name} (${d.agent}, ${d.vertical.toLowerCase()})`).join(', ')}. Each runs Claude tool-calling with an Ollama fallback, ChromaDB embeddings and an MCP server on Railway.` });
   DEMOS.forEach((d) => c.push({ station: 'demos', src: `Demo · ${d.name}`, open: `demo:${d.id}`, text: `${d.name} is a live ${d.vertical.toLowerCase()} demo. ${d.text} The assistant is called ${d.agent}.` }));
   Object.entries(SKILLS).forEach(([k, v]) => c.push({ station: 'skills', src: `Skills · ${k}`, text: `${k} skills: ${v.join(', ')}.` }));
-  c.push({ station: 'contact', src: 'Contact', text: `Reach Alo by email at ${PROFILE.email}, on LinkedIn (aloysious-kabonge) or GitHub (akabonge). Open to AI/ML engineering roles and local-business automation projects. Mantra: one day at a time.` });
+  c.push({ station: 'contact', src: 'Contact', text: `Reach Alo by email at ${PROFILE.email}, on LinkedIn (aloysious-kabonge) or GitHub (akabonge). Currently working at Flatter, Inc. and not seeking new roles. Mantra: one day at a time.` });
   return c.map((d) => ({ ...d, toks: tokens(d.text + ' ' + d.src), stoks: new Set(tokens(d.src)) }));
 }
 
