@@ -57,7 +57,7 @@ const hasPhoto = (key) => !!IMAGES[key] && !photoFailed.has(key);
   const reveal = () => { if (badge.naturalWidth) badge.classList.add('loaded'); };
   badge.addEventListener('load', reveal, { once: true });
   if (badge.complete) reveal(); }
-const photo = (k) => hasPhoto(k) ? `<figure class="proof"><img src="${IMAGES[k].src}" alt="${esc(IMAGES[k].alt)}" data-photo="${esc(k)}" decoding="async">${IMAGES[k].caption ? `<figcaption>${esc(IMAGES[k].caption)}</figcaption>` : ''}</figure>` : '';
+const photo = (k) => hasPhoto(k) ? `<figure class="proof"><img src="${IMAGES[k].src}" width="${IMAGES[k].width}" height="${IMAGES[k].height}" style="aspect-ratio:${IMAGES[k].width}/${IMAGES[k].height}" alt="${esc(IMAGES[k].alt)}" data-photo="${esc(k)}" decoding="async">${IMAGES[k].caption ? `<figcaption>${esc(IMAGES[k].caption)}</figcaption>` : ''}</figure>` : '';
 // Capture errors before inserting drawer markup, including immediate cache errors.
 $('#drawer-body').addEventListener('error', (event) => {
   const image = event.target;
@@ -206,7 +206,7 @@ const builders = {
   },
   build: (id) => {
     const b = COMMUNITY.builds.find((x) => x.id === id);
-    const media = b.video ? `<figure class="proof"><video src="${b.video}" ${hasPhoto(b.photo) ? `poster="${IMAGES[b.photo].src}"` : ''} controls preload="none" muted playsinline aria-label="Short clip of the Goose Creek Habitat crew"></video><figcaption>${esc(IMAGES[b.photo]?.caption || '')}</figcaption></figure>` : (b.photo ? photo(b.photo) : '');
+    const media = b.video ? `<figure class="proof"><video src="${b.video}" width="${b.videoWidth}" height="${b.videoHeight}" style="aspect-ratio:${b.videoWidth}/${b.videoHeight}" ${hasPhoto(b.photo) ? `data-poster="${esc(b.photo)}"` : ''} controls preload="none" muted playsinline aria-label="Short clip of the Goose Creek Habitat crew"></video><figcaption>${esc(IMAGES[b.photo]?.caption || '')}</figcaption></figure>` : (b.photo ? photo(b.photo) : '');
     return `${media}<span class="eyebrow">Spring Break ${esc(b.year)} · ${esc(b.role)}</span><h3 id="drawer-title">${esc(b.city)}, ${esc(b.state)}</h3>
       <p>${esc(b.text)}</p><p class="sub">With ${esc(b.org)}</p>
       <div class="cta-row"><a class="cta" href="${b.href}" target="_blank" rel="noopener">Visit ${esc(b.org)} ↗</a><button class="cta ghost" type="button" data-open="community:all">All builds</button></div>`;
@@ -219,6 +219,11 @@ const builders = {
 function openDrawer(key, opener = document.activeElement) {
   const [kind, id] = key.split(':');
   $('#drawer-body').innerHTML = builders[kind](id);
+  $('#drawer-body').querySelectorAll('video[data-poster]').forEach((video) => {
+    loadPhoto(video.dataset.poster, 'auto').then((image) => {
+      if (image && video.isConnected) video.poster = image.src;
+    }).catch(() => { /* a missing poster does not prevent video playback */ });
+  });
   drawer.classList.add('open');
   showModal(drawer, $('#drawer-close'), opener);
   audio.ping(kind === 'demo' ? 880 : 660);
@@ -1089,9 +1094,11 @@ async function boot() {
     g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.18, 'rgba(255,226,150,0.95)'); g.addColorStop(0.45, 'rgba(232,181,74,0.35)'); g.addColorStop(1, 'rgba(232,181,74,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   let visItems = [], visLine = null, visEmpty = null, visCount = $('#vis-count');
+  let clearVisitorHover = () => {}; // assigned after pointer state exists below
   function buildVisitorSky(list) {
     visItems.forEach((it) => {
       const index = hits.indexOf(it.hit); if (index !== -1) hits.splice(index, 1);
+      clearVisitorHover(it.hit);
       gsap.killTweensOf(it.star.scale);
       vis.remove(it.g); it.g.clear();
       it.tag.material.map.dispose(); it.tag.material.dispose();
@@ -1907,6 +1914,7 @@ async function boot() {
   const ray = new THREE.Raycaster(); ray.params.Points.threshold = 5;
   const cursor = $('#cursor'), cLabel = $('#cursor-label');
   let drag = null, hovered = null, hoveredHit = null, needsPick = false;
+  clearVisitorHover = (hit) => { if (hoveredHit?.object === hit) setHover(null); };
   canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0, lx: look.tx, ly: look.ty }; });
   addEventListener('pointermove', (e) => {
     mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
@@ -1965,8 +1973,8 @@ async function boot() {
 
   // Compile every shader up front so nothing stalls or flashes the first time it comes into view
   try { renderer.compile(scene, camera); } catch { /* optional */ }
-  // Fetch only media near the current section. Save-Data narrows prefetching to
-  // the current station; drawer-only photos are requested only when opened.
+  // Fetch only media near the current section. Save-Data narrows the window to
+  // half a station; drawer-only photos are requested only when opened.
   const updateScenePhotos = createStationMedia([
     { key: 'umw', station: 2, apply: addPostcard },
     { key: 'proofmode', station: 4, apply: addProofScreen },

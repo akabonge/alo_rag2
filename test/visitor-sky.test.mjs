@@ -13,16 +13,27 @@ assert.ok(start >= 0 && end > start, 'Visitor sky section moved; update harness 
 
 function harness() {
   const vis = new THREE.Group(), glowTex = new THREE.Texture();
-  const unrelated = new THREE.Object3D(), hits = [unrelated], messages = [], counter = {};
+  const unrelated = new THREE.Object3D(), hits = [unrelated], messages = [], counter = {}, events = [];
   const context = {
     THREE, vis, glowTex, hits, GOLD: new THREE.Color(0xe8b54a),
     $: () => counter, hash01: () => 0.5,
-    gsap: { killTweensOf() {} }, tween() {}, audio: { ping() {} }, toast: (text) => messages.push(text),
+    gsap: { killTweensOf: (target) => events.push({ type: 'kill', target }) },
+    tween: (target) => events.push({ type: 'tween', target }), audio: { ping() {} }, toast: (text) => messages.push(text),
     register: (object, entry) => { object.userData.hit = entry; hits.push(object); },
     label: () => new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.Texture() })),
+    cursor: { classList: { toggle() {} } }, cLabel: { textContent: '', classList: { toggle() {} } }, canvas: { style: {} },
   };
-  vm.runInNewContext(source.slice(start, end) + '\nglobalThis.sky = { rebuild: buildVisitorSky, state: () => ({ items: visItems, line: visLine, empty: visEmpty }) };', context);
-  return { ...context.sky, vis, glowTex, hits, unrelated, messages, counter };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start, end) + '\nglobalThis.sky = { rebuild: buildVisitorSky, state: () => ({ items: visItems, line: visLine, empty: visEmpty }) };', context);
+  return { ...context.sky, vis, glowTex, hits, unrelated, messages, counter, events,
+    installPointer() {
+      const from = source.indexOf('  function setHover(h)'), to = source.indexOf('  // DOM list hover', from);
+      const cleanup = source.split('\n').find((line) => line.includes('clearVisitorHover = (hit) =>'));
+      assert.ok(from >= 0 && to > from && cleanup, 'Pointer cleanup boundaries moved; update the harness.');
+      vm.runInContext('let hovered = null, hoveredHit = null;\n' + source.slice(from, to) + '\n' + cleanup + '\nglobalThis.pointer = { hover: (object) => setHover({ entry: object.userData.hit, hit: { object } }), state: () => ({ hovered, hoveredHit }) };', context);
+      return context.pointer;
+    },
+  };
 }
 
 const notes = (count, prefix = 'Visitor') => Array.from({ length: count }, (_, i) => ({ name: `${prefix} ${i}`, city: 'Kampala', msg: `Hello ${i}`, t: i }));
@@ -76,4 +87,23 @@ test('empty-state labels release their unique texture and material on subsequent
   assert.ok([...shared.values()].every((count) => count === 0));
   assert.equal(sky.state().empty, null);
   assert.equal(sky.vis.children.length, 1);
+});
+
+test('rebuild clears active visitor hover before disposing resources and preserves unrelated hover', () => {
+  const sky = harness();
+  sky.rebuild(notes(1));
+  sky.rebuild(notes(1, 'Before pointer initialization'));
+  const pointer = sky.installPointer(), item = sky.state().items[0];
+  pointer.hover(item.hit);
+  assert.equal(pointer.state().hoveredHit.object, item.hit);
+  sky.events.length = 0;
+  item.hit.geometry.addEventListener('dispose', () => sky.events.push({ type: 'dispose' }));
+  sky.rebuild(notes(1, 'Replacement'));
+  assert.equal(pointer.state().hovered, null);
+  assert.equal(pointer.state().hoveredHit, null);
+  assert.deepEqual(sky.events.map(({ type }) => type), ['tween', 'kill', 'dispose']);
+  sky.unrelated.userData.hit = { label: 'Other scene item' };
+  pointer.hover(sky.unrelated);
+  sky.rebuild([]);
+  assert.equal(pointer.state().hoveredHit.object, sky.unrelated);
 });

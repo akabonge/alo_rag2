@@ -157,7 +157,7 @@ export const COMMUNITY = {
       org: 'Habitat for Humanity of Broward', href: 'https://habitatbroward.org/' },
     { id: 'gc', year: '2025', city: 'Goose Creek', state: 'SC', pin: 'gc', role: 'Volunteer · rotating crew roles',
       text: 'Rotated across painting, material handling and build support, and stayed in close contact with site leaders on safety, quality and timing.',
-      org: 'Habitat for Humanity of Berkeley County', href: 'https://www.berkeleyhabitat.org/', photo: 'habitat_gc', video: 'assets/habitat-goose-creek.mp4' },
+      org: 'Habitat for Humanity of Berkeley County', href: 'https://www.berkeleyhabitat.org/', photo: 'habitat_gc', video: 'assets/habitat-goose-creek.mp4', videoWidth: 540, videoHeight: 960 },
     { id: 'avery', year: '2026', city: 'Avery County', state: 'NC', pin: 'avery', role: 'Team Lead · 7-person crew',
       text: 'Led a 7-person crew supporting community development and on-site work alongside other volunteers.',
       org: 'Avery County Habitat for Humanity', href: 'https://www.habitat.org/nc/newland/avery-county-habitat-humanity' },
@@ -243,13 +243,13 @@ export const STATIONS = [
 // portrait: hero portrait card + profile panel. proofmode: also textures the 3D ProofMode document.
 // Others appear as proof photos in the drawer whose id matches the key (exp:umw, proj:rag, journey = graduation).
 export const IMAGES = {
-  portrait: { src: 'assets/portrait.jpg', alt: 'Aloysious Kabonge' },
-  graduation: { src: 'assets/graduation.jpg', alt: 'Aloysious in cap and first-generation stole outside Mary Washington College', caption: 'First-generation graduate · May 2026' },
-  proofmode: { src: 'assets/proofmode.jpg', alt: 'ProofMode landing page: Prove how your writing happened', caption: 'ProofMode · live web app' },
-  umw: { src: 'assets/umw.jpg', alt: 'Aerial view of the University of Mary Washington bell tower in autumn', caption: 'Campus Photo · University of Mary Washington' },
-  habitat_gc: { src: 'assets/habitat-goose-creek.jpg', alt: 'Aloysious with the UMW Habitat for Humanity crew at the Berkeley County ReStore in Goose Creek, SC', caption: 'Goose Creek, SC · Spring Break 2025' },
-  finale: { src: 'assets/finale.jpg', alt: 'Aloysious Kabonge by a window in a pink shirt' },
-  profile: { src: 'assets/profile.jpg', alt: 'Aloysious Kabonge laughing in sunglasses, vest and tie', caption: 'Aloysious Kabonge' },
+  portrait: { src: 'assets/portrait.jpg', width: 800, height: 1000, alt: 'Aloysious Kabonge' },
+  graduation: { src: 'assets/graduation.jpg', width: 900, height: 1347, alt: 'Aloysious in cap and first-generation stole outside Mary Washington College', caption: 'First-generation graduate · May 2026' },
+  proofmode: { src: 'assets/proofmode.jpg', width: 1400, height: 733, alt: 'ProofMode landing page: Prove how your writing happened', caption: 'ProofMode · live web app' },
+  umw: { src: 'assets/umw.jpg', width: 1800, height: 947, alt: 'Aerial view of the University of Mary Washington bell tower in autumn', caption: 'Campus Photo · University of Mary Washington' },
+  habitat_gc: { src: 'assets/habitat-goose-creek.jpg', width: 1100, height: 1467, alt: 'Aloysious with the UMW Habitat for Humanity crew at the Berkeley County ReStore in Goose Creek, SC', caption: 'Goose Creek, SC · Spring Break 2025' },
+  finale: { src: 'assets/finale.jpg', width: 800, height: 1000, alt: 'Aloysious Kabonge by a window in a pink shirt' },
+  profile: { src: 'assets/profile.jpg', width: 1000, height: 1500, alt: 'Aloysious Kabonge laughing in sunglasses, vest and tie', caption: 'Aloysious Kabonge' },
   // rag: { src: 'assets/ncur.jpg', alt: 'Presenting at NCUR 2026', caption: 'NCUR 2026 · Richmond, VA' },
 };
 

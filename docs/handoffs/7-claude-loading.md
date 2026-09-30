@@ -16,9 +16,9 @@ This contribution came from an actual installed Claude Code invocation, not a Co
 
 Claude identified the eager seven-image aggregate, both image waits in boot, the square portrait's dependency on an unrelated image promise, and one-time `loaded` checks that permanently omitted late media. The authored proposal separates scene startup from media enhancement, replaces those one-time checks with late hydration functions (`addPostcard`, `addProofScreen`, `paintHolo`), and preserves procedural stand-ins while images are pending or fail. It also addresses detail photos, video posters, and the ProofMode raycast target width.
 
-The attached proposal is the exact patch text extracted from Claude's response. It is an **unvalidated proposal**, not a claim about the final integrated code. It has not been applied wholesale. Codex owns integration, regression fixes, test execution, and deployment verification; final implementation and test results belong in the integration handoff/PR.
+The attached proposal contains Claude's authored patch with context-only blank lines whitespace-normalized for the tracked archive. It is not byte-verbatim; the exact raw response and extracted patch remain in the local `alo-office/claude-performance-contribution.md` and `alo-office/claude-performance-proposal.patch` artifacts. It is an **unvalidated proposal**, not a claim about the final integrated code. It has not been applied wholesale. Codex owns integration, regression fixes, test execution, and deployment verification; final implementation and test results belong in the integration handoff/PR.
 
-Parser check: the original diff has inaccurate hunk counts (`git apply --stat` reports a corrupt patch at line 125). The original is preserved for transparent review; it must not be presented as a directly applicable, tested patch.
+Parser check: the original diff has inaccurate hunk counts (`git apply --stat` reports a corrupt patch at line 125); `git apply --recount --stat` parses it. The archive is retained for transparent review and must not be presented as a directly applicable, tested patch.
 
 ## Integration refinements identified during review
 
@@ -28,7 +28,7 @@ The integrator is adapting the proposal in three explicit ways:
 2. Put the small square portrait directly in the template with reserved layout and failure handling, so it can start independently of the JavaScript image queue.
 3. Avoid calling `renderer.compileAsync(scene, camera)` after every photo. The installed Three.js implementation calls `compile` first; repeatedly traversing the entire scene is not a guaranteed nonblocking optimization.
 
-These refinements are Codex integration decisions, not claims that Claude's original patch contained them. A follow-up actual Claude review of the completed source is planned and will be recorded separately when available.
+These refinements are Codex integration decisions, not claims that Claude's original patch contained them. A follow-up actual Claude review of the integrated source is recorded in [7-claude-loading-review.md](7-claude-loading-review.md).
 
 ## Acceptance criteria supplied by Claude
 

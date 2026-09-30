@@ -242,7 +242,7 @@ main { position: relative; z-index: 10; pointer-events: none; }
 .stat-row div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; text-align: center; display: grid; gap: 2px; }
 .stat-row b { font: 800 1.35rem/1 var(--f-display); color: var(--gold); font-variant-numeric: tabular-nums; }
 .stat-row span { font: 500 0.66rem/1.2 var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
-.proof video { width: 100%; max-height: 70vh; border-radius: 14px; border: 1px solid var(--line); display: block; background: #050818; object-fit: cover; }
+.proof video { width: 100%; height: auto; max-height: 70vh; border-radius: 14px; border: 1px solid var(--line); display: block; background: #050818; object-fit: contain; }
 #star-labels { position: fixed; inset: 0; z-index: 12; pointer-events: none; overflow: hidden; }
 .star-label { position: absolute; left: 0; top: 0; white-space: nowrap; font: 600 0.8rem/1 var(--f-body); color: #fff; background: rgba(6, 10, 23, 0.88); border: 1px solid var(--c, var(--line)); border-radius: 999px; padding: 6px 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.45); transition: opacity 0.25s; will-change: transform; }
 .star-label.main { font: 800 1.05rem/1 var(--f-display); padding: 8px 14px; border-width: 2px; z-index: 1; }
@@ -496,7 +496,7 @@ body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #fl
 <main id="track">
   <section class="station welcome" data-station="welcome" id="welcome" data-side="center">
     <div class="welcome-card">
-      <button class="portrait-btn" id="portrait-btn" type="button" data-open="about:me" aria-label="View Aloysious Kabonge's profile"><span class="portrait-fallback" aria-hidden="true">AK</span><img id="portrait-badge" src="assets/portrait-square.jpg" width="640" height="640" decoding="async" fetchpriority="high" alt="Aloysious Kabonge"></button>
+      <button class="portrait-btn" id="portrait-btn" type="button" data-open="about:me" aria-label="View Aloysious Kabonge's profile"><span class="portrait-fallback" aria-hidden="true">AK</span><img id="portrait-badge" src="assets/portrait-square.jpg" width="900" height="900" decoding="async" fetchpriority="high" alt="Aloysious Kabonge"></button>
       <span class="eyebrow">Luganda · Uganda</span>
       <h1 class="oli" lang="lg">Oli otya?</h1>
       <p class="oli-en">How are you?</p>

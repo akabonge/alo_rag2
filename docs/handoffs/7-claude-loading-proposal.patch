@@ -53,14 +53,14 @@ diff --git a/src/main.js b/src/main.js
    renderer.setAnimationLoop(null); lenis?.destroy(); lenis = null;
    document.documentElement.classList.add('no-webgl');
 @@ -915,5 +926,4 @@
- 
+
    await Promise.race([document.fonts?.ready, new Promise((r) => setTimeout(r, 1500))]);
 -  await Promise.race([imgReady, new Promise((r) => setTimeout(r, 2500))]);
 -  await progress(0.05, 'Loading type, photos and shaders');
 +  await progress(0.05, 'Loading type and shaders');
- 
+
 @@ -1231,6 +1241,7 @@
- 
+
 -  // Postcard from Fredericksburg: the UMW campus photo floats beside the arrival point
 +  // Postcard from Fredericksburg: the UMW campus photo floats beside the arrival point once it arrives
    let postcard = null;

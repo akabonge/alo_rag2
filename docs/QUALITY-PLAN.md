@@ -51,10 +51,13 @@ python -m http.server 5174 --directory src
 # In another terminal:
 npm run test:browser -- http://127.0.0.1:5174 test-results
 npm run test:experience -- http://127.0.0.1:5174 test-results/experience
+npm run test:media -- http://127.0.0.1:5174 test-results/media
 npm run site:audit:phones -- --url http://127.0.0.1:5174/
 ```
 
 `Portfolio quality` runs the generated-page check, mocked server/client tests and browser regression on pull requests and main. `test/` now contains both historical generators and actual regression tests. The browser harness refuses non-local origins and mocks API writes.
+
+The progressive-media suite holds and aborts JPEG responses, checks late scene enhancement and hit geometry, exercises cached/failing portraits and posters, and loses the actual WebGL context while an image is pending. Instrumentation is injected only into the locally served module for observation; no production debug globals are needed. Node tests independently cover request deduplication, station scheduling, graphics-failure guards and guestbook resource ownership.
 
 ## Audit evidence
 
