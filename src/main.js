@@ -28,7 +28,8 @@ import { createSubmissionTracker } from './guestbook.js?v=20';
 /* ------------------------------------------------------------------ */
 const $ = (s) => document.querySelector(s);
 const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
-let reduced = motionPreference.matches;
+let appliedMotionPreference = motionPreference.matches;
+let reduced = appliedMotionPreference;
 let motionPaused = false;
 let finishIntro = null;
 const touch = matchMedia('(hover: none)').matches;
@@ -812,12 +813,13 @@ addEventListener('keydown', (e) => {
 /* ------------------------------------------------------------------ */
 /* Smooth scroll + station mapping                                     */
 /* ------------------------------------------------------------------ */
-let lenis = reduced ? null : new Lenis({ lerp: 0.09, smoothWheel: true, wheelMultiplier: 0.9 });
+let lenis = reduced || sceneFailed ? null : new Lenis({ lerp: 0.09, smoothWheel: true, wheelMultiplier: 0.9 });
 function updateMotion() {
   endTour(); stopFlight?.();
-  reduced = motionPreference.matches || motionPaused;
+  appliedMotionPreference = motionPreference.matches;
+  reduced = appliedMotionPreference || motionPaused;
   lenis?.destroy();
-  lenis = reduced ? null : new Lenis({ lerp: 0.09, smoothWheel: true, wheelMultiplier: 0.9 });
+  lenis = reduced || sceneFailed ? null : new Lenis({ lerp: 0.09, smoothWheel: true, wheelMultiplier: 0.9 });
   if (document.querySelector('dialog[open]')) lenis?.stop();
   document.documentElement.classList.toggle('motion-paused', reduced);
   if (reduced) finishIntro?.();
@@ -825,6 +827,11 @@ function updateMotion() {
     button.textContent = motionPreference.matches ? 'Reduced motion' : motionPaused ? 'Resume motion' : 'Pause motion';
     button.setAttribute('aria-pressed', String(reduced)); button.disabled = motionPreference.matches;
   });
+}
+function syncMotionPreference() {
+  // Reconcile on a frame as well: browser/emulation lifecycle changes can update
+  // matches without delivering a change event. Manual pause remains independent.
+  if (appliedMotionPreference !== motionPreference.matches) updateMotion();
 }
 motionPreference.addEventListener('change', updateMotion);
 document.querySelectorAll('[data-motion]').forEach((button) => button.addEventListener('click', () => { motionPaused = !motionPaused; updateMotion(); }));
@@ -901,7 +908,7 @@ try {
   renderer = null;
   updateHUD(stationFloat(scrollY));
   addEventListener('scroll', () => updateHUD(stationFloat(scrollY)), { passive: true });
-  (function raf(t) { lenis?.raf(t); updateHUD(stationFloat(scrollY)); requestAnimationFrame(raf); })(0);
+  (function raf(t) { syncMotionPreference(); lenis?.raf(t); updateHUD(stationFloat(scrollY)); requestAnimationFrame(raf); })(0);
 }
 
 if (renderer) boot().catch(() => {
@@ -1996,14 +2003,16 @@ async function boot() {
   /* ---------- loop ---------- */
   const fogNight = NIGHT.clone(), fogDay = new THREE.Color(0x365879), fogDawn = new THREE.Color(0x24141f);
   const tmpP = new THREE.Vector3(), tmpL = new THREE.Vector3();
-  let frames = 0, slow = 0, watched = false, arcDrawn = false, lastKm = -1, animationTime = 0;
+  let frames = 0, slow = 0, watched = false, arcDrawn = false, lastKm = -1, animationTime = 0, performanceElapsed = 0;
   const kmEl = $('#km-n');
   const ease = (x) => { const s = THREE.MathUtils.smoothstep(x, 0.12, 0.88); return s; };
 
   renderer.setAnimationLoop(() => {
+    syncMotionPreference();
     clock.update();
     if (document.hidden) return;
     const raw = clock.getDelta(), dt = reduced ? 0 : Math.min(raw, 0.05), dtCam = Math.min(raw, 0.25), t = animationTime += dt;
+    performanceElapsed += raw;
     U.uTime.value = t;
     if (lenis) lenis.raf(performance.now());
     const y = lenis ? lenis.scroll : scrollY;
@@ -2079,8 +2088,8 @@ async function boot() {
     composer.render(dt);
 
     // performance watchdog: drop to LQ once if the device struggles
-    if (!watched && t > 4) {
-      frames++; if (dt > 1 / 36) slow++;
+    if (!watched && performanceElapsed > 4) {
+      frames++; if (raw > 1 / 36) slow++;
       if (frames === 150) {
         if (slow > 90 && HIGH()) { tier = 'low'; applyTier(); frames = 0; slow = 0; } // re-check once in low quality
         else { watched = true; if (slow > 90) offerLite('slow'); }                   // still struggling: offer the text version

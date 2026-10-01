@@ -20,9 +20,9 @@ const check = (name, passed, evidence = {}) => { results.push({ name, passed: !!
 const source = fs.readFileSync(path.join(__dirname, '../src/main.js'), 'utf8');
 const marker = 'const updateScenePhotos = createStationMedia([';
 if (source.split(marker).length !== 2) throw new Error('Update the test-only integration hook for the current scene source.');
-const instrumented = source.replace(marker, `window.__mediaQA = {
+const instrumented = source.replace("motionPreference.addEventListener('change', updateMotion);", "motionPreference.addEventListener('change', event => { window.__motionChangeEvents = (window.__motionChangeEvents || 0) + 1; updateMotion(event); });").replace(marker, `window.__mediaQA = {
   state: () => ({ postcard: postcard?.uuid || null, proofTexture: screenU.uMap.value?.uuid || null, proofHitScale: proofHit.scale.x, holoTexture: holoTex.uuid, holoVersion: holoTex.version, sceneFailed }),
-  motion: () => ({ reduced, motionPaused, osReduced: motionPreference.matches, time: U.uTime.value, postcardY: postcard?.position.y ?? null, postcardBaseY, cranePosition: crane.position.toArray(), craneQuaternion: crane.quaternion.toArray(), craneScale: crane.scale.toArray(), craneCelebration }),
+  motion: () => ({ reduced, motionPaused, osReduced: motionPreference.matches, hasLenis: !!lenis, time: U.uTime.value, postcardY: postcard?.position.y ?? null, postcardBaseY, cranePosition: crane.position.toArray(), craneQuaternion: crane.quaternion.toArray(), craneScale: crane.scale.toArray(), craneCelebration }),
   clickCrane: () => { const target = hits.find(hit => hit.userData.hit?.label === 'Grey crowned crane · click me'); if (!target) throw new Error('Crane interaction missing'); target.userData.hit.click(); },
   settled: key => loadPhoto(key).then(image => !!image),
   loseContext: () => { const extension = renderer.getContext().getExtension('WEBGL_lose_context'); if (!extension) return false; extension.loseContext(); return true; }
@@ -33,7 +33,7 @@ async function scenario(width = 390, options = {}) {
   // A fresh browser per scenario avoids retaining several software WebGL scenes.
   const browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   browserVersion = browser.version();
-  const context = await browser.newContext({ viewport: { width, height: width < 768 ? 844 : 900 }, isMobile: width < 768, hasTouch: width < 768, reducedMotion: 'reduce' });
+  const context = await browser.newContext({ viewport: { width, height: width < 768 ? 844 : 900 }, isMobile: width < 768, hasTouch: width < 768, reducedMotion: options.reducedMotion || 'reduce' });
   const requested = [], videoRequests = [], pending = new Set(); let released = false;
   const failedDependencies = [];
   const failed = new Set(options.fail || []);
@@ -120,6 +120,24 @@ async function toggleManualMotion(page) {
   await controls().first().click();
   if (await page.locator('#section-menu').evaluate(menu => menu.open)) await page.locator('#section-menu summary').click();
 }
+async function contextLossScenario() {
+  const s = await scenario(390, { hold: true, reducedMotion: 'no-preference' });
+  try {
+    await s.load('#projects'); await s.waitRequest('proofmode.jpg'); const before = await s.page.evaluate(() => window.__mediaQA.state());
+    const supported = await s.page.evaluate(() => window.__mediaQA.loseContext());
+    if (!supported) throw new Error('WEBGL_lose_context unavailable; cannot claim context-loss coverage.');
+    await s.page.waitForFunction(() => window.__mediaQA.state().sceneFailed);
+    s.release(); await s.page.evaluate(() => window.__mediaQA.settled('proofmode'));
+    const after = await s.page.evaluate(() => ({ ...window.__mediaQA.state(), fallback: !document.querySelector('#boot-fallback').hidden }));
+    check('Context loss prevents pending photo application after response completion', after.sceneFailed && after.fallback && !after.proofTexture && after.proofHitScale === before.proofHitScale && after.holoVersion === before.holoVersion, after);
+    await toggleManualMotion(s.page); await toggleManualMotion(s.page);
+    const restored = await s.page.evaluate(() => ({ ...window.__mediaQA.motion(), scrollY }));
+    await s.page.mouse.move(180, 320); await s.page.mouse.wheel(0, 450);
+    await s.page.waitForFunction(before => Math.abs(scrollY - before) > 10, restored.scrollY, { timeout: 5000 });
+    const scrolled = await s.page.evaluate(() => ({ ...window.__mediaQA.motion(), scrollY }));
+    check('Motion toggles after context loss retain native wheel scrolling', !restored.motionPaused && !restored.osReduced && !restored.hasLenis && !scrolled.hasLenis && Math.abs(scrolled.scrollY - restored.scrollY) > 10, { before: restored, after: scrolled });
+  } finally { await s.close(); }
+}
 async function motionScenarios() {
   for (const width of [390, 1440]) {
     const s = await scenario(width);
@@ -137,7 +155,10 @@ async function motionScenarios() {
       check(`${width}: reduced-motion crane fact remains available without starting celebration`, initial.reduced && reducedClick.reduced && /Uganda fact 5 of/.test(fact) && reducedClick.craneCelebration === null && frozenTransforms(initial, reducedClick), { initial, after: reducedClick, fact });
 
       await s.page.emulateMedia({ reducedMotion: 'no-preference' });
-      await s.page.waitForFunction(() => { const s = window.__mediaQA.motion(); return !s.reduced && s.time > 0.8 && Math.abs(Math.sin(s.time * 0.9)) > 0.3; });
+      await s.page.waitForFunction(() => { const s = window.__mediaQA.motion(); return !s.reduced && s.time > 0.8 && Math.abs(Math.sin(s.time * 0.9)) > 0.3; }).catch(async error => {
+        const diagnostic = await s.page.evaluate(() => ({ motion: window.__mediaQA.motion(), scene: window.__mediaQA.state(), hidden: document.hidden, currentPreference: matchMedia('(prefers-reduced-motion: reduce)').matches, changeEvents: window.__motionChangeEvents || 0 }));
+        throw new Error(`${error.message}; motion=${JSON.stringify(diagnostic)}`);
+      });
       await toggleManualMotion(s.page);
       await s.page.waitForFunction(() => window.__mediaQA.motion().motionPaused);
       await renderedFrames(s.page, 2);
@@ -273,21 +294,9 @@ async function motionScenarios() {
       try { await s.load(); for (const station of ['journey','projects','contact']) await jump(s.page,station); check('No-WebGL navigation never downloads optional 3D scene photos', await s.page.evaluate(() => document.documentElement.classList.contains('no-webgl')) && fullRequests(s.requested).length === 0, { requested:s.requested }); }
       finally { await s.close(); }
     }
-    {
-      const s = await scenario(390, { hold: true });
-      try {
-        await s.load('#projects'); await s.waitRequest('proofmode.jpg'); const before = await s.page.evaluate(() => window.__mediaQA.state());
-        const supported = await s.page.evaluate(() => window.__mediaQA.loseContext());
-        if (!supported) throw new Error('WEBGL_lose_context unavailable; cannot claim context-loss coverage.');
-        await s.page.waitForFunction(() => window.__mediaQA.state().sceneFailed);
-        s.release(); await s.page.evaluate(() => window.__mediaQA.settled('proofmode'));
-        const after = await s.page.evaluate(() => ({ ...window.__mediaQA.state(), fallback: !document.querySelector('#boot-fallback').hidden }));
-        check('Context loss prevents pending photo application after response completion', after.sceneFailed && after.fallback && !after.proofTexture && after.proofHitScale === before.proofHitScale && after.holoVersion === before.holoVersion, after);
-      } finally { await s.close(); }
     }
     }
-    }
-    if (!viewsOnly) await motionScenarios();
+    if (!viewsOnly) { await contextLossScenario(); await motionScenarios(); }
     check('Progressive-media scenarios have no uncaught JavaScript errors', errors.length === 0, errors);
   } catch (error) { runtimeFailure = { name: error.name, message: error.message }; console.error(error); process.exitCode = 1; }
   finally { if (output) fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({ timestamp:new Date().toISOString(),browserVersion,dependencyMode,scope:motionOnly?'motion':viewsOnly?'views':'full',completed:!runtimeFailure,runtimeFailure,results,errors },null,2)); }

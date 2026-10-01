@@ -1,6 +1,6 @@
 # Grok findings: current disposition
 
-Owner/integrator: Codex. Branch: `codex/grok-reliability-followup`, based on main `73826f5`. This reconciles [Grok's experience review, PR #12](https://github.com/akabonge/alo_rag2/pull/12) and the [progressive-media review](7-grok-loading-review.md). The historical review is preserved; it is not silently rewritten as a current audit.
+Owner/integrator: Codex. Branch: `codex/grok-reliability-followup`, [PR #14](https://github.com/akabonge/alo_rag2/pull/14), based on main `73826f5`. This reconciles [Grok's experience review, PR #12](https://github.com/akabonge/alo_rag2/pull/12) and the [progressive-media review](7-grok-loading-review.md). The historical review is preserved; it is not silently rewritten as a current audit.
 
 ## Findings acted on in this increment
 
@@ -8,6 +8,8 @@ Owner/integrator: Codex. Branch: `codex/grok-reliability-followup`, based on mai
 - **Employment availability retrieval:** “Is he open to work?” previously missed Contact's explicit current Flatter/not-seeking statement. Normalizing common availability phrases now retrieves that statement without changing the facts.
 - **Unrelated president question:** generic “Who is the president?” matched campus vice-president text. Qualified vice-president roles are now indexed distinctly; relevant campus questions still work.
 - **Paused motion:** the preference listener already existed, but postcard Y was incremented every rendered frame using frozen time. A bounded offset from its original Y fixes continued drift. The crane celebration now uses the same pausable clock and cannot start while reduced motion is active.
+- **Claude's recovery findings:** actual Claude review caught undriven smooth scrolling after context loss and a performance watchdog incorrectly tied to frozen decorative time. Graphics failure now preserves native scrolling through motion toggles, and slow-render sampling uses independent frame timing. [Actual review and integration](9-claude-grok-followup.md).
+- **Missed motion preference events:** Windows and Linux headless Chromium changed the native media-query value without notifying the app in the new test. Frame-level reconciliation now applies a changed preference while retaining the normal event listener and independent manual pause. The dynamic OS-transition assertions remain intact.
 - **Demo claim:** local source lists differ in length, so the uniform “23 prompt-injection patterns” claim is replaced by a description of pattern-based input checks. This does not claim that those checks prove prompt-injection resistance.
 
 ## Earlier findings reconciled against current source
@@ -27,8 +29,10 @@ Owner/integrator: Codex. Branch: `codex/grok-reliability-followup`, based on mai
 
 ## Evidence and boundaries
 
-The new Ask tests exercise real local retrieval and API contracts with mocked provider responses. They do not establish factual quality or injection resistance of a live model. Grok's original 20-case table had no observed runs; the follow-up observation record distinguishes deterministic results from those still requiring model or device evaluation.
+The new Ask tests exercise real local retrieval and API contracts with mocked provider responses. They do not establish factual quality or injection resistance of a live model. Grok's original 20-case table had no observed runs; the [follow-up observation record](9-ask-observations.md) distinguishes deterministic results from those still requiring model or device evaluation.
 
-Local Node validation passed 80 tests, with the real Redis suite explicitly skipped because no local Redis server is running. CI must run that suite against its disposable Redis service before merge. Browser checks exercise explicit retry after a lost/invalid acknowledgement, unique IDs after confirmation, moderated replay messaging and actual object transforms while paused. Final run results and independent review are recorded on the integration PR.
+Local Node validation passed 84 tests, with the real Redis suite explicitly skipped because no local Redis server is running. The first CI run executed the actual Lua concurrency suite successfully against disposable Redis; it also passed the responsive and experience suites, then correctly failed on the missed preference-event timeout. That incomplete run is not an all-pass result. Final-head CI must pass before merge.
+
+The targeted guestbook browser run passed 13/13 checks: explicit retry after a lost/invalid acknowledgement, unique IDs after confirmation, moderated replay messaging, and existing local/confirmed-save behavior. The final motion/context-loss run passed 15/15 checks at 390 and 1440 widths, inspecting actual object transforms after nonzero animation time, dynamic OS transitions, and real wheel scrolling after context loss. Both runs used locked dependency versions mirrored locally because native CDN startup failed on this machine; they do not measure production delivery. Browsers closed after each run. Final CI results are recorded on the integration PR. No production guestbook notes or paid model requests are generated by these tests.
 
 Shared Ask abuse/cost limits remain open in [issue #9](https://github.com/akabonge/alo_rag2/issues/9); scene startup performance in [#7](https://github.com/akabonge/alo_rag2/issues/7); physical devices/assistive technology in [#8](https://github.com/akabonge/alo_rag2/issues/8); claims and typography/contrast in [#10](https://github.com/akabonge/alo_rag2/issues/10) and [#11](https://github.com/akabonge/alo_rag2/issues/11). This pass does not close those broader tasks.

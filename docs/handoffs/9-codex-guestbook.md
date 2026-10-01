@@ -1,9 +1,9 @@
 # 9 — Codex — Guestbook retry reliability
 
 - Owner / branch: Codex API reviewer, `codex/grok-reliability-followup`.
-- Issue / PR: [quality issue #9](https://github.com/akabonge/alo_rag2/issues/9); integration PR pending.
+- Issue / PR: [quality issue #9](https://github.com/akabonge/alo_rag2/issues/9); [PR #14](https://github.com/akabonge/alo_rag2/pull/14).
 - Starting commit: `73826f5`.
-- Status: ready for integration review; actual Redis execution pending CI.
+- Status: integrated; actual Redis execution passed in the first CI run. Final-head CI remains the release gate.
 
 ## Result
 
@@ -32,4 +32,4 @@ Ask's limit remains best effort per warm serverless instance, including cache hi
 
 Grok's header concern is deployment-dependent, not a confirmed spoofing defect: [Vercel documents overwriting external `X-Forwarded-For` values](https://vercel.com/docs/headers/request-headers#x-forwarded-for); trusted-proxy configuration needs separate verification. [Upstash documents Lua atomic operations over HTTP](https://upstash.com/blog/lua-scripting-on-upstash-redis-atomic-operations-over-http), and [its pipeline documentation](https://upstash.com/docs/redis/features/restapi#pipelining) explicitly distinguishes non-atomic pipelines. No production provider configuration was probed.
 
-Next step: pass actual Redis and browser integration checks in CI, record the PR and results in the root handoff, then merge after independent review.
+Integration update: [CI run 36798803510](https://github.com/akabonge/alo_rag2/actions/runs/36798803510) passed the Node/actual Redis step and guestbook-containing browser suite. The run later failed on a separate motion-preference transition, now addressed; final-head CI remains required. The local targeted guestbook suite passed 13/13 checks, with APIs mocked and locked local dependency mirroring explicitly labeled. Replay confirmation now acknowledges the earlier save without claiming a moderated note is still public.
