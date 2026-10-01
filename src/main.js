@@ -21,6 +21,7 @@ import { buildCorpus, makeIndex, extract, ragPrompt } from './ask.js?v=16';
 import { fetchJSON } from './network.js?v=17';
 import { localAtmosphere, placeLabels } from './atmosphere.js?v=18';
 import { createImageLoader, createStationMedia } from './media.js?v=19';
+import { createSubmissionTracker } from './guestbook.js?v=20';
 
 /* ------------------------------------------------------------------ */
 /* Environment                                                         */
@@ -171,7 +172,7 @@ const builders = {
   demo: (id) => {
     const d = DEMOS.find((x) => x.id === id);
     return `<span class="eyebrow">${esc(d.vertical)} · live on Railway</span><h3 id="drawer-title">${esc(d.name)}</h3><p class="sub">Meet ${esc(d.agent)}.</p><p>${esc(d.text)}</p>
-      <p>Claude tool-calling with an Ollama fallback, ChromaDB embeddings, an MCP server and an operator dashboard. Guardrails cover 23 prompt-injection patterns.</p>
+      <p>Claude tool-calling with an Ollama fallback, ChromaDB embeddings, an MCP server and an operator dashboard. Pattern-based input checks flag known prompt-injection attempts.</p>
       <div class="cta-row"><a class="cta" href="${d.href}" target="_blank" rel="noopener">Open ${esc(d.agent)} live ↗</a></div>`;
   },
   about: () => `${photo('profile') || photo('portrait')}<span class="eyebrow">AI/ML Engineer · Fredericksburg, VA</span><h3 id="drawer-title">${esc(PROFILE.name)}</h3>
@@ -731,6 +732,7 @@ addEventListener('keydown', (e) => { if (e.key === 'Escape' && touring) endTour(
 /* Order: your /api/guestbook (Vercel + Upstash) → claude.ai db → this browser only */
 /* ------------------------------------------------------------------ */
 const guest = { mode: 'local', notes: [], db: null, onChange: null };
+const guestSubmission = createSubmissionTracker();
 const BAD = /\b(fuck|shit|bitch|cunt|nigg|fag|slut|whore|dick|pussy|rape|kill yourself|kys)\w*/i;
 const cleanNote = (v, n) => String(v || '').replace(/https?:\/\/\S+|www\.\S+|<[^>]*>/gi, '').replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, n);
 function setNotes(list) { guest.notes = list.slice(0, 300); renderGuestList(); guest.onChange?.(guest.notes); }
@@ -753,11 +755,14 @@ async function loadGuestbook() {
 }
 async function addNote(n) {
   if (guest.mode === 'server') {
-    const j = await fetchJSON(GUESTBOOK_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(n) });
+    const submissionId = guestSubmission.begin(n);
+    const j = await fetchJSON(GUESTBOOK_ENDPOINT, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...n, submissionId }) });
+    if (j.saved !== true || typeof j.note?.name !== 'string' || typeof j.note?.msg !== 'string' || !Number.isFinite(j.note.t)) throw new Error('Could not confirm your star. Please check the guestbook before trying again.');
     if (Array.isArray(j.notes)) setNotes(j.notes);
-    else if (j.saved === true && typeof j.note?.name === 'string' && typeof j.note?.msg === 'string' && Number.isFinite(j.note.t)) setNotes([j.note, ...guest.notes]);
-    else throw new Error('Could not confirm your star. Please check the guestbook before trying again.');
-    return j.refreshPending ? 'Your star was saved. Reload to refresh the visitor list when the connection recovers.' : 'Your star is in the sky for every visitor.';
+    else setNotes([j.note, ...guest.notes]);
+    guestSubmission.confirm(submissionId);
+    return j.refreshPending ? 'Your star was saved. Reload to refresh the visitor list when the connection recovers.' :
+      j.replayed ? 'Your earlier note was already saved. The visitor list is up to date.' : 'Your star is in the sky for every visitor.';
   }
   if (guest.mode === 'db') { await guest.db.collection('guestbook').add(n); return 'Your star is in the sky.'; }
   const list = [n, ...guest.notes];
@@ -1256,7 +1261,7 @@ async function boot() {
   plantFlag(usFlag(), B);
 
   // Claude's late-media design: attach the postcard once, whenever its photo arrives.
-  let postcard = null;
+  let postcard = null, postcardBaseY = 0;
   function addPostcard(im) {
     if (postcard) return;
     const tex = new THREE.Texture(im); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.needsUpdate = true;
@@ -1277,6 +1282,7 @@ async function boot() {
     // world-ish position of the Fredericksburg marker in the globe's own space
     const bLocal = B.clone().applyQuaternion(globeInner.quaternion);
     postcard.position.copy(bLocal).add(new THREE.Vector3(0.4, -3.9, 3.6));
+    postcardBaseY = postcard.position.y;
     globe.add(postcard);
     const tether = new THREE.Line(new THREE.BufferGeometry().setFromPoints([bLocal, postcard.position.clone().add(new THREE.Vector3(0, ph / 2, 0))]),
       new THREE.LineDashedMaterial({ color: SIGNAL, dashSize: 0.12, gapSize: 0.1, transparent: true, opacity: 0.7 }));
@@ -1335,7 +1341,7 @@ async function boot() {
       const n = craneClicks % UGANDA_FACTS.length; craneClicks++;
       toast(`Uganda fact ${n + 1} of ${UGANDA_FACTS.length} · ${UGANDA_FACTS[n]}`);
       if (n + 1 === 5 || n + 1 === UGANDA_FACTS.length) { // celebrate: a victory loop, a little tune, and my voice
-        craneSpin = 1; gsap.fromTo(crane.scale, { x: 0.75, y: 0.75, z: 0.75 }, { x: 1.6, y: 1.6, z: 1.6, duration: 0.8, yoyo: true, repeat: 1, ease: 'power2.inOut' });
+        if (!reduced) craneCelebration = U.uTime.value;
         if (audio.on) [587.33, 739.99, 880, 987.77, 1174.66].forEach((f, i) => setTimeout(() => audio.ping(f, 0.12), i * 130));
         setTimeout(() => { playVoice('assets/webale-nnyo.mp3', 'Webale nnyo! Thank you very much.'); toast(n + 1 === 5 ? 'Webale nnyo! Thank you very much. Keep clicking, 10 more facts to go.' : 'You found all 15 facts! Webale nnyo, thank you very much.'); }, 4200);
       }
@@ -1344,11 +1350,18 @@ async function boot() {
   }
   const craneNext = new THREE.Vector3();
   const cranePath = (a, out) => out.set(P.journey.x + Math.cos(a) * 12, P.journey.y + 5.5 + Math.sin(a * 2) * 1.2, P.journey.z + Math.sin(a) * 8.5);
-  let craneSpin = 0;
+  let craneCelebration = null;
   function updateCrane(t) {
     const a = t * 0.22;
     cranePath(a, crane.position); cranePath(a + 0.02, craneNext); crane.lookAt(craneNext);
-    crane.rotateZ(-0.25); if (craneSpin > 0) { craneSpin = Math.max(0, craneSpin - 0.012); crane.rotateZ((1 - craneSpin) * Math.PI * 4); }
+    crane.rotateZ(-0.25);
+    if (craneCelebration !== null) {
+      // Use the same pausable clock as the wings/path, independent of frame rate.
+      const progress = Math.min((t - craneCelebration) / 1.6, 1);
+      crane.rotateZ(progress * Math.PI * 4);
+      crane.scale.setScalar(0.75 + Math.sin(progress * Math.PI) * 0.85);
+      if (progress === 1) { craneCelebration = null; crane.scale.setScalar(0.75); }
+    }
     crane.userData.wings.forEach((w) => { w.rotation.z = w.userData.sd * Math.sin(t * 5.2) * 0.55; });
   }
   // ---------- Flight replay: 23 hours from Entebbe, collect the dreams on the way ----------
@@ -2035,7 +2048,7 @@ async function boot() {
       if (flight.on) updateFlight(); else updateComet(t);
       if (postcard) postcard.visible = !flight.on;
       updateCrane(t);
-      if (postcard) { postcard.lookAt(camera.position); postcard.position.y += Math.sin(t * 0.9) * 0.002; }
+      if (postcard) { postcard.lookAt(camera.position); postcard.position.y = postcardBaseY + Math.sin(t * 0.9) * 0.12; }
       globe.rotation.y = Math.sin(t * 0.25) * 0.18;
       markers.forEach((m, k) => { const s = 1 + ((t * 0.8 + k * 0.5) % 1) * 1.6; m.scale.setScalar(s); m.material.opacity = 1 - ((t * 0.8 + k * 0.5) % 1); });
       if (!arcDrawn && f > 0.4) { arcDrawn = true; arcU.uDraw.value = 0; tween(arcU.uDraw, { value: 1, duration: reduced ? 0 : 2.4, ease: 'power2.inOut' }); }

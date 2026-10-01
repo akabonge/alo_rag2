@@ -139,29 +139,29 @@ test('Guestbook validates JSON, field types and admin authentication before touc
   guestEnvironment(t);
   t.mock.method(globalThis, 'fetch', noNetwork);
   const guestbook = await fresh('guestbook');
-  for (const body of ['{', 'null', null, [], {}, { name: [], msg: 'Hello' }, { name: 'Visitor', msg: 'Hi', city: {} }]) {
+  for (const body of ['{', 'null', null, [], {}, { name: [], msg: 'Hello' }, { name: 'Visitor', msg: 'Hi', city: {} }, ...[null, 12, '', 'bad-key', 'a'.repeat(10000)].map((submissionId) => ({ name: 'Visitor', msg: 'Hi', submissionId }))]) {
     assert.equal((await request(guestbook, body)).statusCode, 400);
   }
   assert.equal((await request(guestbook, undefined, { method: 'DELETE' })).statusCode, 403);
   assert.equal((await request(guestbook, undefined, { method: 'DELETE', headers: { 'x-admin-key': 'incorrect' } })).statusCode, 403);
 });
 
-test('Guestbook fails closed on Redis command errors or invalid rate counts', async (t) => {
+test('Guestbook fails closed on Redis script errors or malformed results', async (t) => {
   guestEnvironment(t);
   const guestbook = await fresh('guestbook');
   const replies = [
-    [{ error: 'Rate storage failed' }, { result: 1 }],
-    [{ result: null }, { result: 1 }],
-    [{ result: 1 }, { error: 'Expiry failed' }],
-    [{ result: 1 }, { result: 0 }],
-    {}, [],
+    [{ error: 'Rate storage failed' }], [{ result: null }],
+    [{ result: ['rate_limited', 0] }], [{ result: ['rate_limited', 3601] }],
+    [{ result: ['saved', '{}'] }], [{ result: ['saved', '{'] }],
+    [{ result: ['unknown', '{}'] }], {}, [],
   ];
   const fetch = t.mock.method(globalThis, 'fetch', async (_url, options) => {
-    assert.equal(JSON.parse(options.body)[0][0], 'INCR', 'Must not write a note after a failed rate check');
+    assert.equal(JSON.parse(options.body)[0][0], 'EVAL');
     return json(replies.shift());
   });
-  for (let i = 0; i < 6; i++) assert.equal((await request(guestbook, { name: 'Visitor', msg: 'Hello' })).statusCode, 502);
-  assert.equal(fetch.mock.callCount(), 6);
+  const cases = replies.length;
+  for (let i = 0; i < cases; i++) assert.equal((await request(guestbook, { name: 'Visitor', msg: 'Hello' })).statusCode, 502);
+  assert.equal(fetch.mock.callCount(), cases);
 });
 
 test('Guestbook blocks excess posts and only reports a saved note after valid storage responses', async (t) => {
@@ -172,12 +172,17 @@ test('Guestbook blocks excess posts and only reports a saved note after valid st
   const fetch = t.mock.method(globalThis, 'fetch', async (_url, options) => {
     assert.ok(options.signal instanceof AbortSignal);
     const commands = JSON.parse(options.body);
-    if (commands[0][0] === 'INCR') return json([{ result: count }, { result: 1 }]);
-    if (commands[0][0] === 'LPUSH') { stored = commands[0][2]; return json([{ result: 1 }, { result: 'OK' }]); }
+    if (commands[0][0] === 'EVAL') {
+      if (count > 3) return json([{ result: ['rate_limited', '123'] }]);
+      stored = commands[0][3 + commands[0][2]];
+      return json([{ result: ['saved', stored] }]);
+    }
     return json([{ result: [stored] }]);
   });
   const note = { name: 'Visitor', city: 'Kampala', msg: 'Hello' };
-  assert.equal((await request(guestbook, note)).statusCode, 429);
+  const limited = await request(guestbook, note);
+  assert.equal(limited.statusCode, 429);
+  assert.equal(limited.headers['Retry-After'], '123');
   assert.equal(fetch.mock.callCount(), 1);
   count = 1;
   const saved = await request(guestbook, note);
@@ -186,7 +191,7 @@ test('Guestbook blocks excess posts and only reports a saved note after valid st
   assert.deepEqual(saved.body.note, saved.body.notes[0]);
   assert.equal(saved.body.notes[0].msg, 'Hello');
   assert.equal(saved.body.notes[0].city, 'Kampala');
-  assert.equal(fetch.mock.callCount(), 4);
+  assert.equal(fetch.mock.callCount(), 3);
 });
 
 test('Guestbook confirms a saved note even when the subsequent list refresh fails', async (t) => {
@@ -195,10 +200,9 @@ test('Guestbook confirms a saved note even when the subsequent list refresh fail
   let stored;
   const fetch = t.mock.method(globalThis, 'fetch', async (_url, options) => {
     const commands = JSON.parse(options.body);
-    if (commands[0][0] === 'INCR') return json([{ result: 1 }, { result: 1 }]);
-    if (commands[0][0] === 'LPUSH') {
-      stored = JSON.parse(commands[0][2]);
-      return json([{ result: 1 }, { result: 'OK' }]);
+    if (commands[0][0] === 'EVAL') {
+      stored = JSON.parse(commands[0][3 + commands[0][2]]);
+      return json([{ result: ['saved', JSON.stringify(stored)] }]);
     }
     assert.equal(commands[0][0], 'LRANGE');
     throw new Error('Storage read failed after confirmed write');
@@ -209,7 +213,60 @@ test('Guestbook confirms a saved note even when the subsequent list refresh fail
   assert.deepEqual(saved.body.note, stored);
   assert.equal(saved.body.notes, null);
   assert.equal(saved.body.refreshPending, true);
-  assert.equal(fetch.mock.callCount(), 3);
+  assert.equal(fetch.mock.callCount(), 2);
+});
+
+test('Guestbook retries a lost write acknowledgement with the same receipt and original timestamp', async (t) => {
+  guestEnvironment(t);
+  const guestbook = await fresh('guestbook');
+  const note = { name: 'Visitor', city: 'Kampala', msg: 'Hello', submissionId: '74de98cb-574d-4981-9b0c-ef8788170c03' };
+  let stored, receiptKey, fingerprint;
+  let writes = 0;
+  t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    const [command] = JSON.parse(options.body);
+    if (command[0] === 'LRANGE') return json([{ result: [stored] }]);
+    assert.equal(command[0], 'EVAL');
+    assert.equal(command[2], 3);
+    if (!stored) {
+      stored = command[6]; receiptKey = command[5]; fingerprint = command[7]; writes++;
+      throw new Error('Write committed; acknowledgement lost');
+    }
+    assert.equal(command[5], receiptKey);
+    assert.equal(command[7], fingerprint, 'Fingerprint must exclude the new timestamp');
+    return json([{ result: ['replayed', stored] }]);
+  });
+  assert.equal((await request(guestbook, note)).statusCode, 502);
+  t.mock.timers.tick(1000);
+  const retried = await request(guestbook, { ...note, submissionId: note.submissionId.toUpperCase(), t: 999999 });
+  assert.equal(retried.statusCode, 200);
+  assert.equal(retried.body.replayed, true);
+  assert.equal(retried.body.note.t, 100_000);
+  assert.equal(retried.body.notes.length, 1);
+  assert.equal(writes, 1);
+  assert.equal(Object.hasOwn(retried.body.note, 'submissionId'), false);
+});
+
+test('Guestbook exposes conflicts without claiming a save and accepts canonical-equivalent replay payloads', async (t) => {
+  guestEnvironment(t);
+  const guestbook = await fresh('guestbook');
+  const submissionId = '74de98cb-574d-4981-9b0c-ef8788170c03';
+  const note = { name: 'Visitor', city: '', msg: 'Hello', t: 123 };
+  let conflict = true;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    const [command] = JSON.parse(options.body);
+    if (command[0] === 'LRANGE') throw new Error('Refresh unavailable after replay');
+    return json([{ result: conflict ? ['conflict'] : ['replayed', JSON.stringify(note)] }]);
+  });
+  const rejected = await request(guestbook, { ...note, submissionId });
+  assert.equal(rejected.statusCode, 409);
+  assert.equal(rejected.body.saved, undefined);
+  conflict = false;
+  const replay = await request(guestbook, { name: ' Visitor ', msg: '<b>Hello</b>', submissionId });
+  assert.equal(replay.statusCode, 200);
+  assert.deepEqual(replay.body.note, note);
+  assert.equal(replay.body.replayed, true);
+  assert.equal(replay.body.refreshPending, true);
 });
 
 test('Guestbook moderation preserves a note posted between reading and removing the target', async (t) => {

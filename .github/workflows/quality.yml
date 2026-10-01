@@ -9,6 +9,16 @@ jobs:
   regression:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 127.0.0.1:6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +31,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build:page && git diff --exit-code -- src/index.html src/text.html
       - run: npm test
+        env:
+          GUESTBOOK_REDIS_TEST_PORT: 6379
       - run: npx playwright install --with-deps chromium
       - name: Audit visibility and target measurement
         run: npm run test:audit-browser

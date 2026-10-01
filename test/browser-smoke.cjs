@@ -10,12 +10,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const base = process.argv[2] || 'http://127.0.0.1:5174';
 const output = process.argv[3] ? path.resolve(process.argv[3]) : null;
+const mirrorRoot = process.env.BROWSER_CDN_DIR ? fs.realpathSync(path.resolve(process.env.BROWSER_CDN_DIR)) : null;
+const mirrorModule = mirrorRoot ? import('../scripts/audit/audit-core.mjs') : null;
 if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname)) {
   throw new Error('Use a local static server: this suite mocks API requests and must not write to production.');
 }
 if (output) fs.mkdirSync(output, { recursive: true });
 const results = [];
 const limitations = engine === 'firefox' ? ['Playwright Firefox does not support isMobile; phone sizes use viewport and touch emulation only.'] : [];
+if (mirrorRoot) limitations.push('Pinned local dependency mirror; this run does not measure production CDN behavior.');
 limitations.forEach(message => console.log(`COVERAGE NOTE: ${message}`));
 const check = (name, passed, evidence) => { results.push({ name, passed: !!passed, evidence }); console.log(`${passed ? 'PASS' : 'FAIL'} ${name}: ${JSON.stringify(evidence)}`); };
 const pause = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -24,6 +27,13 @@ let runtimeFailure = null;
 async function context(options = {}) {
   if (engine === 'firefox') { options = { ...options }; delete options.isMobile; }
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', ...options });
+  if (mirrorRoot) await ctx.route('https://cdn.jsdelivr.net/npm/**', async route => {
+    const url = new URL(route.request().url());
+    const file = (await mirrorModule).mirroredFile(mirrorRoot, url.href);
+    const pkg = url.pathname.match(/^\/npm\/(three|gsap|lenis)@([^/]+)\//);
+    if (!file || !pkg || JSON.parse(fs.readFileSync(path.join(mirrorRoot, pkg[1], 'package.json'), 'utf8')).version !== pkg[2]) return route.abort();
+    return route.fulfill({ contentType: 'application/javascript', body: fs.readFileSync(file), headers: { 'access-control-allow-origin': '*' } });
+  });
   await ctx.route('**/api/guestbook', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ notes: [] }) }));
   // Default catches accidental submissions. Individual Ask tests replace this route.
   await ctx.route('**/api/ask', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
@@ -177,17 +187,23 @@ async function submit(page, question) { await page.locator('#ask-input').fill(qu
       check('Unrelated Ask prompt stays grounded without another API request', (await page.locator('#ask-out').innerText()).includes('isn’t covered') && received.length === 2, { received }); await ctx.close();
     }
     }
-    for (const scenario of ['local-only', 'confirmed', 'refresh-pending', 'timeout']) {
+    for (const scenario of ['local-only', 'confirmed', 'refresh-pending', 'timeout', 'uncertain-response', 'moderated-replay']) {
       const { ctx, page } = await context(); let posts = 0;
+      const submissions = [], stored = new Map();
       await page.route('**/api/guestbook', async route => {
         if (route.request().method() === 'GET') {
           return route.fulfill({ status: scenario === 'local-only' ? 503 : 200, contentType: 'application/json', body: JSON.stringify(scenario === 'local-only' ? { error: 'Guestbook temporarily unavailable' } : { notes: [] }) });
         }
         posts++;
         const note = route.request().postDataJSON();
-        if (scenario === 'timeout') await pause(9000);
+        const attempt = posts;
+        submissions.push(note);
+        if (!stored.has(note.submissionId)) stored.set(note.submissionId, { name: note.name, city: note.city, msg: note.msg, t: 1234 + stored.size });
+        const canonical = stored.get(note.submissionId);
+        if (scenario === 'timeout' && attempt === 1) await pause(9000);
         else await pause(300); // keep the first request pending during the second click
-        const reply = scenario === 'refresh-pending' ? { saved: true, note, notes: null, refreshPending: true } : { saved: true, note, notes: [note] };
+        const reply = scenario === 'moderated-replay' ? { saved: true, replayed: true, note: canonical, notes: [] } : scenario === 'uncertain-response' && attempt === 1 ? { notes: [] } :
+          scenario === 'refresh-pending' ? { saved: true, note: canonical, notes: null, refreshPending: true } : { saved: true, note: canonical, notes: [...stored.values()] };
         try { await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reply) }); } catch { /* timeout may already have aborted the request */ }
       });
       await load(page); await page.locator('#stars [data-guestbook]').click();
@@ -205,8 +221,20 @@ async function submit(page, question) { await page.locator('#ask-input').fill(qu
       });
       if (scenario === 'local-only') {
         check('Guestbook local-only: truthful visible confirmation, one local note and no POST', state.confirmation.includes('only in this browser') && !state.confirmation.includes('every visitor') && posts === 0 && state.local.length === 1 && state.message === '', { posts, ...state });
-      } else if (scenario === 'timeout') {
-        check('Guestbook timeout: uncertainty stated, draft retained and no blind retry', state.confirmation.includes('timed out') && state.confirmation.includes('may have arrived') && state.confirmation.includes('check the guestbook') && state.message === `Guestbook ${scenario} fixture` && posts === 1, { posts, ...state });
+      } else if (scenario === 'moderated-replay') {
+        check('Guestbook replay confirms the earlier save without claiming a removed note is public', state.confirmation === 'Your earlier note was already saved. The visitor list is up to date.' && !state.notes.some(note => note.includes('Guestbook moderated-replay fixture')) && state.message === '' && posts === 1, { posts, ...state });
+      } else if (scenario === 'timeout' || scenario === 'uncertain-response') {
+        const expected = scenario === 'timeout' ? state.confirmation.includes('timed out') && state.confirmation.includes('may have arrived') : state.confirmation.includes('Could not confirm');
+        check(`Guestbook ${scenario}: uncertainty stated, draft retained and no blind retry`, expected && state.confirmation.includes('check the guestbook') && state.message === `Guestbook ${scenario} fixture` && posts === 1, { posts, ...state });
+        await page.locator('#gb-form button[type="submit"]').click();
+        await page.waitForFunction(() => !document.querySelector('#gb-form button[type="submit"]').disabled && document.querySelector('#gb-msg').value === '');
+        const retried = await page.locator('#gb-list').innerText();
+        check(`Guestbook ${scenario}: explicit retry retains UUID and confirms one original note`, posts === 2 && /^[0-9a-f-]{36}$/i.test(submissions[0].submissionId) && submissions[1].submissionId === submissions[0].submissionId && stored.size === 1 && retried.includes(`Guestbook ${scenario} fixture`), { posts, sameId: submissions[1].submissionId === submissions[0].submissionId, stored: stored.size });
+        await page.locator('#stars [data-guestbook]').click();
+        await page.locator('#gb-msg').fill('A new intentional note');
+        await page.locator('#gb-form button[type="submit"]').click();
+        await page.waitForFunction(() => !document.querySelector('#gb-form button[type="submit"]').disabled && document.querySelector('#gb-msg').value === '');
+        check(`Guestbook ${scenario}: confirmed subsequent note gets a new UUID`, posts === 3 && submissions[2].submissionId !== submissions[1].submissionId && stored.size === 2, { posts, newId: submissions[2].submissionId !== submissions[1].submissionId, stored: stored.size });
       } else {
         const expected = scenario === 'refresh-pending' ? 'Your star was saved. Reload to refresh the visitor list when the connection recovers.' : 'Your star is in the sky for every visitor.';
         check(`Guestbook ${scenario}: saved confirmation visible and draft cleared`, state.confirmation === expected && state.message === '' && state.notes.filter(note => note.includes(`Guestbook ${scenario} fixture`)).length === 1, { posts, ...state });
