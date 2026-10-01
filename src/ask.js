@@ -19,7 +19,13 @@ const SYN = {
 };
 
 const stem = (w) => w.replace(/(ing|ed|es|s)$/,'');
-const words = (s) => s.toLowerCase().replace(/[’']/g, '').split(/[^a-z0-9+#]+/).filter(Boolean);
+// Keep qualified roles distinct, and resolve common career-availability wording
+// to the existing Contact statement. This does not equate unrelated "open source"
+// questions with availability or treat campus vice-presidents as a president.
+const words = (s) => s.toLowerCase().replace(/[’']/g, '')
+  .replace(/\bvice[\s-]+presidents?\b/g, 'vicepresident')
+  .replace(/\b(?:open|available|looking|seeking)\s+(?:(?:to|for)\s+)?(?:(?:a|an)\s+)?(?:(?:new|another|any)\s+)?(?:work|jobs?|roles?|positions?|opportunities|hire)\b/g, 'availability')
+  .split(/[^a-z0-9+#]+/).filter(Boolean);
 const tokens = (s) => words(s).filter((w) => !STOP.has(w)).map(stem);
 const NAME = new Set(['alo', 'alos', 'yourself']); // names only steer toward the profile, never gate a match
 const queryGroups = (q) => words(q).filter((w) => !NAME.has(w) && (!STOP.has(w) || SYN[w])).map((w) => [...(STOP.has(w) ? [] : [w]), ...(SYN[w] || [])].map(stem));

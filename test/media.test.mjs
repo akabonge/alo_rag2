@@ -223,7 +223,7 @@ test('actual UMW attachment uses late dimensions and registers one working postc
     label: () => new THREE.Sprite(), register: (mesh, entry) => targets.push({ mesh, entry }),
     openDrawer: (key) => opened.push(key),
   };
-  vm.runInNewContext(section('  let postcard = null;', '  // A comet') + '\nglobalThis.attach = addPostcard;', context);
+  vm.runInNewContext(section('  let postcard = null,', '  // A comet') + '\nglobalThis.attach = addPostcard;', context);
   const image = { naturalWidth: 1800, naturalHeight: 947 };
   context.attach(image); context.attach(image);
   assert.equal(targets.length, 1);

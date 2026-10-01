@@ -202,7 +202,7 @@ export const PROJECTS = [
     badge: '5 live demos',
     when: '2026',
     problem: 'Local businesses want AI automation but have no low-risk way to see it working on their own use case before committing budget.',
-    approach: 'Five production-style agentic assistants, each with Claude tool-calling, an Ollama fallback, local embeddings via ChromaDB, an MCP server and an operator dashboard. Guardrails cover 23 prompt-injection patterns plus session and rate limiting.',
+    approach: 'Five production-style agentic assistants, each with Claude tool-calling, an Ollama fallback, local embeddings via ChromaDB, an MCP server and an operator dashboard. Pattern-based input checks flag known prompt-injection attempts, alongside session and rate limiting.',
     result: 'Five verticals live at once on Railway, the core sales tool for the AI Alo consulting practice.',
     tags: ['FastAPI', 'Claude', 'ChromaDB', 'MCP'],
     links: [],

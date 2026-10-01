@@ -129,23 +129,31 @@ If the endpoint fails, the browser can use the optional `window.claude` sampling
 
 ```mermaid
 flowchart TD
-    Form[Name / city / message] --> API[POST guestbook API]
+    Form[Name / city / message + retry ID] --> API[POST guestbook API]
     API --> Clean[Strip links and HTML; bound lengths]
     Clean --> Check[Required fields and abuse filter]
-    Check --> Limit[Redis IP counter]
-    Limit --> Store[LPUSH note and LTRIM to 300]
+    Check --> Receipt[Atomic Redis script: check receipt]
+    Receipt -->|Already saved| Original[Return original note]
+    Receipt -->|Different content for same ID| Conflict[409 conflict]
+    Receipt -->|New submission| Limit[Check shared IP quota]
+    Limit --> Store[Save note, trim to 300, count and receipt]
     Store --> List[Read shared notes]
+    Original --> List
     List --> Stars[Browser list and star scene]
     Read[GET guestbook API] --> List
     Admin[DELETE with admin key] --> Remove[Remove note by timestamp]
     Remove --> StoreList[Remove only the matching stored note]
 ```
 
-[`api/guestbook.js`](../api/guestbook.js) uses the Redis REST pipeline directly. Notes include name, city, message and timestamp. Names are capped at 30 characters, cities at 30 and messages at 90. The API rejects a count above three for each IP; the Redis counter expiry is reset to one hour on every attempted valid submission, so it is not a fixed calendar-hour window.
+[`api/guestbook.js`](../api/guestbook.js) uses the Redis REST API directly. Notes include name, city, message and timestamp. Names are capped at 30 characters, cities at 30 and messages at 90. A single [Redis script](../lib/guestbook-store.js) checks a private retry receipt before the shared IP quota, then saves a new note and its receipt together. Three new notes are allowed in a one-hour window starting at the first accepted note. Further submissions and replays do not extend that expiry. A rejected new submission returns 429 with `Retry-After`.
+
+The browser holds one random submission ID for an unchanged uncertain draft in memory; an explicit retry reuses it. The server compares a hash of the sanitized name/city/message and returns the original note and timestamp, without another list entry or quota charge. Reusing the ID for different content returns 409. Receipts expire after 24 hours; the page stops retrying that draft after 23 hours. Reloading loses the pending browser ID, so check the guestbook before re-entering an uncertain note after a reload. Legacy callers without IDs remain accepted but do not have retry deduplication. No automatic retries are introduced. Private IDs are excluded from public notes.
+
+The script validates existing key types and counter values before writing. [Redis scripts execute atomically](https://redis.io/docs/latest/develop/programmability/eval-intro/), and [Upstash supports EVAL](https://upstash.com/docs/redis/sdks/ts/commands/scripts/eval); this prevents concurrent request interleaving, not rollback after arbitrary runtime/storage failures or durable exactly-once delivery.
 
 The shared list retains at most 300 notes. The UI lists up to 40; local-only fallback storage retains up to 50. At initialization the browser tries the server, then a host-provided Claude database, then `localStorage`. Local notes stay in that browser and are not shared with other visitors. A missing Redis configuration returns 503; upstream storage errors return 502.
 
-An optional admin key authorizes deletion by timestamp. Moderation removes exact stored records with `LREM`, preserving unrelated concurrent additions. Confirmed writes remain successful even if the following list refresh fails. Unknown write outcomes still need idempotent submission identifiers before automatic retries are safe. The word filter is a basic automated filter, not a complete moderation system.
+An optional admin key authorizes deletion by timestamp. Moderation removes exact stored records with `LREM`, preserving unrelated concurrent additions. Confirmed writes remain successful even if the following list refresh fails. Replaying a receipt does not restore a moderated or trimmed note. The word filter is a basic automated filter, not a complete moderation system.
 
 ## 5. Technology and package inventory
 

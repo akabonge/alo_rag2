@@ -1,9 +1,11 @@
-// GET -> { notes }; POST { name, city, msg } -> { saved, note, notes, refreshPending? }
+// GET -> { notes }; POST { name, city, msg, submissionId? } -> { saved, note, notes, replayed?, refreshPending? }
 // Storage: Upstash Redis (free tier). Add it in Vercel → Storage → Upstash (Redis); Vercel sets the env vars.
 // Accepts either KV_REST_API_URL/KV_REST_API_TOKEN or UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN.
+import { GUESTBOOK_KEY as KEY, GUESTBOOK_MAX as MAX, saveNoteCommand, validSubmissionId } from '../lib/guestbook-store.js';
+
 const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
 const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-const KEY = 'aialo:guestbook', MAX = 300, REQUEST_TIMEOUT = 7000;
+const REQUEST_TIMEOUT = 7000;
 const BAD = /\b(fuck|shit|bitch|cunt|nigg|fag|slut|whore|dick|pussy|rape|kill yourself|kys)\w*/i;
 const clean = (v, n) => String(v || '').replace(/https?:\/\/\S+|www\.\S+|<[^>]*>/gi, '').replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -52,20 +54,29 @@ export default async function handler(req, res) {
     try { b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body; }
     catch { return res.status(400).json({ error: 'Send a valid JSON note' }); }
     if (!b || Array.isArray(b) || typeof b.name !== 'string' || typeof b.msg !== 'string' || (b.city !== undefined && typeof b.city !== 'string')) return res.status(400).json({ error: 'Add your first name and a short note.' });
+    if (b.submissionId !== undefined && !validSubmissionId(b.submissionId)) return res.status(400).json({ error: 'Use a valid submission ID.' });
     const note = { name: clean(b.name, 30), city: clean(b.city, 30), msg: clean(b.msg, 90), t: Date.now() };
     if (!note.name || !note.msg) return res.status(400).json({ error: 'Add your first name and a short note.' });
     if (BAD.test(`${note.name} ${note.city} ${note.msg}`)) return res.status(400).json({ error: 'Please keep it kind. Try rewording your note.' });
     const ip = String(req.headers['x-forwarded-for'] || 'anon').split(',')[0].trim();
-    const [count, expiry] = await redis(signal, ['INCR', `aialo:gb-rate:${ip}`], ['EXPIRE', `aialo:gb-rate:${ip}`, 3600]);
-    if (!Number.isInteger(count) || count < 1 || expiry !== 1) throw new Error('Invalid rate-limit result');
-    if (count > 3) return res.status(429).json({ error: 'You have already left a few stars this hour. Thank you!' });
-    const [length, trimmed] = await redis(signal, ['LPUSH', KEY, JSON.stringify(note)], ['LTRIM', KEY, 0, MAX - 1]);
-    if (!Number.isInteger(length) || length < 1 || trimmed !== 'OK') throw new Error('Invalid save result');
+    const [result] = await redis(signal, saveNoteCommand(note, ip, b.submissionId));
+    if (!Array.isArray(result)) throw new Error('Invalid save result');
+    if (result.length === 1 && result[0] === 'conflict') return res.status(409).json({ error: 'This submission ID belongs to a different note. Start a new note.' });
+    if (result.length === 2 && result[0] === 'rate_limited') {
+      const retryAfter = Number(result[1]);
+      if (!Number.isInteger(retryAfter) || retryAfter < 1 || retryAfter > 3600) throw new Error('Invalid rate-limit result');
+      res.setHeader('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: 'You have already left a few stars this hour. Thank you!' });
+    }
+    if (result.length !== 2 || !['saved', 'replayed'].includes(result[0]) || typeof result[1] !== 'string') throw new Error('Invalid save result');
+    const stored = JSON.parse(result[1]);
+    if (!stored || stored.name !== note.name || stored.city !== note.city || stored.msg !== note.msg || !Number.isFinite(stored.t) || stored.t < 0) throw new Error('Invalid saved note');
+    const confirmed = { saved: true, note: { name: stored.name, city: stored.city, msg: stored.msg, t: stored.t }, ...(result[0] === 'replayed' ? { replayed: true } : {}) };
     try {
-      return res.json({ saved: true, note, notes: await list(signal) });
+      return res.json({ ...confirmed, notes: await list(signal) });
     } catch {
       // Storage confirmed the write. A failed refresh must not invite a duplicate submission.
-      return res.json({ saved: true, note, notes: null, refreshPending: true });
+      return res.json({ ...confirmed, notes: null, refreshPending: true });
     }
   } catch {
     return res.status(controller.signal.aborted ? 504 : 502).json({ error: 'Could not reach the guestbook right now. Please try again later.' });

@@ -1,11 +1,18 @@
 // Progressive-media regressions. Local server only; every API request is mocked.
 // node test/media-browser.cjs http://127.0.0.1:5174 ../alo-office/qa/media
+// MEDIA_MOTION_ONLY=1 runs only actual postcard/crane transform regressions.
+// MEDIA_CDN_DIR=node_modules explicitly mirrors pinned modules; not a CDN/performance test.
 const { chromium } = require(process.env.PLAYWRIGHT_PACKAGE_PATH || 'playwright');
 const fs = require('node:fs'), path = require('node:path');
 const base = new URL(process.argv[2] || 'http://127.0.0.1:5174');
 if (!['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) throw new Error('Run this controlled-network suite against localhost.');
 const output = process.argv[3] ? path.resolve(process.argv[3]) : null;
 const viewsOnly = process.env.MEDIA_VIEWS_ONLY === '1';
+const motionOnly = process.env.MEDIA_MOTION_ONLY === '1';
+const mirrorRoot = process.env.MEDIA_CDN_DIR ? fs.realpathSync(path.resolve(process.env.MEDIA_CDN_DIR)) : null;
+const dependencyMode = mirrorRoot ? 'locked local mirror (not production CDN transfer)' : 'network dependencies';
+const mirrorModule = mirrorRoot ? import('../scripts/audit/audit-core.mjs') : null;
+if (viewsOnly && motionOnly) throw new Error('Choose views-only or motion-only, not both.');
 if (output) fs.mkdirSync(output, { recursive: true });
 const results = [], errors = [];
 let runtimeFailure = null, browserVersion;
@@ -13,8 +20,10 @@ const check = (name, passed, evidence = {}) => { results.push({ name, passed: !!
 const source = fs.readFileSync(path.join(__dirname, '../src/main.js'), 'utf8');
 const marker = 'const updateScenePhotos = createStationMedia([';
 if (source.split(marker).length !== 2) throw new Error('Update the test-only integration hook for the current scene source.');
-const instrumented = source.replace(marker, `window.__mediaQA = {
+const instrumented = source.replace("motionPreference.addEventListener('change', updateMotion);", "motionPreference.addEventListener('change', event => { window.__motionChangeEvents = (window.__motionChangeEvents || 0) + 1; updateMotion(event); });").replace(marker, `window.__mediaQA = {
   state: () => ({ postcard: postcard?.uuid || null, proofTexture: screenU.uMap.value?.uuid || null, proofHitScale: proofHit.scale.x, holoTexture: holoTex.uuid, holoVersion: holoTex.version, sceneFailed }),
+  motion: () => ({ reduced, motionPaused, osReduced: motionPreference.matches, hasLenis: !!lenis, time: U.uTime.value, postcardY: postcard?.position.y ?? null, postcardBaseY, cranePosition: crane.position.toArray(), craneQuaternion: crane.quaternion.toArray(), craneScale: crane.scale.toArray(), craneCelebration }),
+  clickCrane: () => { const target = hits.find(hit => hit.userData.hit?.label === 'Grey crowned crane · click me'); if (!target) throw new Error('Crane interaction missing'); target.userData.hit.click(); },
   settled: key => loadPhoto(key).then(image => !!image),
   loseContext: () => { const extension = renderer.getContext().getExtension('WEBGL_lose_context'); if (!extension) return false; extension.loseContext(); return true; }
 };
@@ -22,10 +31,11 @@ const instrumented = source.replace(marker, `window.__mediaQA = {
 
 async function scenario(width = 390, options = {}) {
   // A fresh browser per scenario avoids retaining several software WebGL scenes.
-  const browser = await chromium.launch({ headless: true, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+  const browser = await chromium.launch({ headless: true, args: ['--mute-audio', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   browserVersion = browser.version();
-  const context = await browser.newContext({ viewport: { width, height: width < 768 ? 844 : 900 }, isMobile: width < 768, hasTouch: width < 768, reducedMotion: 'reduce' });
+  const context = await browser.newContext({ viewport: { width, height: width < 768 ? 844 : 900 }, isMobile: width < 768, hasTouch: width < 768, reducedMotion: options.reducedMotion || 'reduce' });
   const requested = [], videoRequests = [], pending = new Set(); let released = false;
+  const failedDependencies = [];
   const failed = new Set(options.fail || []);
   await context.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url()), file = path.posix.basename(url.pathname);
@@ -33,6 +43,12 @@ async function scenario(width = 390, options = {}) {
     if (url.pathname.startsWith('/api/')) return route.fulfill({ status: 200, contentType: 'application/json', body: '{"notes":[]}' });
     if (!['GET', 'HEAD'].includes(request.method())) return route.fulfill({ status: 405, body: 'Read-only test' });
     if (url.origin === base.origin && url.pathname === '/main.js') return route.fulfill({ contentType: 'application/javascript', body: instrumented });
+    if (mirrorRoot && url.hostname === 'cdn.jsdelivr.net' && url.pathname.startsWith('/npm/')) {
+      const file = (await mirrorModule).mirroredFile(mirrorRoot, request.url());
+      const pkg = url.pathname.match(/^\/npm\/(three|gsap|lenis)@([^/]+)\//);
+      if (!file || !pkg || JSON.parse(fs.readFileSync(path.join(mirrorRoot, pkg[1], 'package.json'), 'utf8')).version !== pkg[2]) return route.abort();
+      return route.fulfill({ contentType: 'application/javascript', body: fs.readFileSync(file), headers: { 'access-control-allow-origin': '*' } });
+    }
     if (!/\.jpe?g$/i.test(url.pathname)) return route.continue();
     requested.push(file);
     if (failed.has(file)) return route.fulfill({ status: 404, body: 'Controlled image failure' });
@@ -49,12 +65,19 @@ async function scenario(width = 390, options = {}) {
   if (options.noWebGL) await context.addInitScript(() => { const original = HTMLCanvasElement.prototype.getContext; HTMLCanvasElement.prototype.getContext = function (type, ...args) { return /^(webgl|experimental-webgl)/.test(type) ? null : original.call(this, type, ...args); }; });
   const page = await context.newPage();
   page.on('pageerror', error => errors.push({ width, message: error.message }));
+  page.on('requestfailed', request => { if (/\.(?:m?js)(?:\?|$)/.test(request.url())) failedDependencies.push({ url: request.url(), error: request.failure()?.errorText }); });
   return {
     page, requested, videoRequests, pending,
     async load(hash = '') {
       await page.goto(new URL('/' + hash, base).href, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(() => getComputedStyle(document.querySelector('#loader')).visibility === 'hidden', null, { timeout: 30000 });
-      if (!options.noWebGL) await page.waitForFunction(() => !!window.__mediaQA, null, { timeout: 20000 });
+      if (!options.noWebGL) {
+        try { await page.waitForFunction(() => !!window.__mediaQA, null, { timeout: 20000 }); }
+        catch (error) {
+          const state = await page.evaluate(() => ({ noWebGL: document.documentElement.classList.contains('no-webgl'), fallback: !document.querySelector('#boot-fallback').hidden }));
+          throw new Error(`${error.message}; startup=${JSON.stringify({ ...state, dependencyMode, failedDependencies })}`);
+        }
+      }
     },
     async waitRequest(file) { await page.waitForFunction(file => performance.getEntriesByType('resource').some(r => r.name.endsWith(file)), file, { timeout: 100 }).catch(() => {}); const deadline = Date.now() + 10000; while (!requested.includes(file) && Date.now() < deadline) await page.waitForTimeout(50); if (!requested.includes(file)) throw new Error(`Expected request not observed: ${file}`); },
     release() { released = true; for (const entry of pending) entry.release('continue'); },
@@ -83,8 +106,93 @@ async function projectCases(page) {
 }
 const fullRequests = list => list.filter(file => file !== 'portrait-square.jpg');
 
+async function renderedFrames(page, count = 16) {
+  await page.evaluate(count => new Promise(resolve => {
+    const next = () => { if (--count <= 0) resolve(); else requestAnimationFrame(next); };
+    requestAnimationFrame(next);
+  }), count);
+}
+const sameVector = (a, b) => a.length === b.length && a.every((value, index) => Math.abs(value - b[index]) < 1e-8);
+const frozenTransforms = (before, after) => Math.abs(before.postcardY - after.postcardY) < 1e-8 && sameVector(before.cranePosition, after.cranePosition) && sameVector(before.craneQuaternion, after.craneQuaternion) && sameVector(before.craneScale, after.craneScale);
+async function toggleManualMotion(page) {
+  const controls = () => page.locator('[data-motion]').filter({ visible: true });
+  if (!await controls().count()) await page.locator('#section-menu summary').click();
+  await controls().first().click();
+  if (await page.locator('#section-menu').evaluate(menu => menu.open)) await page.locator('#section-menu summary').click();
+}
+async function contextLossScenario() {
+  const s = await scenario(390, { hold: true, reducedMotion: 'no-preference' });
+  try {
+    await s.load('#projects'); await s.waitRequest('proofmode.jpg'); const before = await s.page.evaluate(() => window.__mediaQA.state());
+    const supported = await s.page.evaluate(() => window.__mediaQA.loseContext());
+    if (!supported) throw new Error('WEBGL_lose_context unavailable; cannot claim context-loss coverage.');
+    await s.page.waitForFunction(() => window.__mediaQA.state().sceneFailed);
+    s.release(); await s.page.evaluate(() => window.__mediaQA.settled('proofmode'));
+    const after = await s.page.evaluate(() => ({ ...window.__mediaQA.state(), fallback: !document.querySelector('#boot-fallback').hidden }));
+    check('Context loss prevents pending photo application after response completion', after.sceneFailed && after.fallback && !after.proofTexture && after.proofHitScale === before.proofHitScale && after.holoVersion === before.holoVersion, after);
+    await toggleManualMotion(s.page); await toggleManualMotion(s.page);
+    const restored = await s.page.evaluate(() => ({ ...window.__mediaQA.motion(), scrollY }));
+    await s.page.mouse.move(180, 320); await s.page.mouse.wheel(0, 450);
+    await s.page.waitForFunction(before => Math.abs(scrollY - before) > 10, restored.scrollY, { timeout: 5000 });
+    const scrolled = await s.page.evaluate(() => ({ ...window.__mediaQA.motion(), scrollY }));
+    check('Motion toggles after context loss retain native wheel scrolling', !restored.motionPaused && !restored.osReduced && !restored.hasLenis && !scrolled.hasLenis && Math.abs(scrolled.scrollY - restored.scrollY) > 10, { before: restored, after: scrolled });
+  } finally { await s.close(); }
+}
+async function motionScenarios() {
+  for (const width of [390, 1440]) {
+    const s = await scenario(width);
+    const state = () => s.page.evaluate(() => window.__mediaQA.motion());
+    const clickCrane = count => s.page.evaluate(count => { for (let i = 0; i < count; i++) window.__mediaQA.clickCrane(); }, count);
+    try {
+      await s.load('#journey'); await s.waitRequest('umw.jpg');
+      await s.page.waitForFunction(() => window.__mediaQA.state().postcard);
+      await renderedFrames(s.page, 2);
+      const initial = await state();
+      await clickCrane(5);
+      const fact = await s.page.locator('#toast').textContent();
+      await renderedFrames(s.page);
+      const reducedClick = await state();
+      check(`${width}: reduced-motion crane fact remains available without starting celebration`, initial.reduced && reducedClick.reduced && /Uganda fact 5 of/.test(fact) && reducedClick.craneCelebration === null && frozenTransforms(initial, reducedClick), { initial, after: reducedClick, fact });
+
+      await s.page.emulateMedia({ reducedMotion: 'no-preference' });
+      await s.page.waitForFunction(() => { const s = window.__mediaQA.motion(); return !s.reduced && s.time > 0.8 && Math.abs(Math.sin(s.time * 0.9)) > 0.3; }).catch(async error => {
+        const diagnostic = await s.page.evaluate(() => ({ motion: window.__mediaQA.motion(), scene: window.__mediaQA.state(), hidden: document.hidden, currentPreference: matchMedia('(prefers-reduced-motion: reduce)').matches, changeEvents: window.__motionChangeEvents || 0 }));
+        throw new Error(`${error.message}; motion=${JSON.stringify(diagnostic)}`);
+      });
+      await toggleManualMotion(s.page);
+      await s.page.waitForFunction(() => window.__mediaQA.motion().motionPaused);
+      await renderedFrames(s.page, 2);
+      const paused = await state();
+      await renderedFrames(s.page);
+      const stillPaused = await state();
+      check(`${width}: manual Pause freezes the actual postcard and crane after nonzero animation time`, paused.time > 0.8 && Math.abs(Math.sin(paused.time * 0.9)) > 0.3 && paused.time === stillPaused.time && paused.motionPaused && stillPaused.reduced && frozenTransforms(paused, stillPaused), { before: paused, after: stillPaused });
+      check(`${width}: postcard remains bounded around its original anchor while paused`, Math.abs(stillPaused.postcardY - stillPaused.postcardBaseY) <= 0.12000001, stillPaused);
+      await shot(s.page, `motion-paused-${width}`);
+
+      await toggleManualMotion(s.page);
+      await s.page.waitForFunction(time => !window.__mediaQA.motion().reduced && window.__mediaQA.motion().time > time, paused.time);
+      await clickCrane(10); // 15th total click: trigger the second actual celebration.
+      await s.page.waitForFunction(() => { const s = window.__mediaQA.motion(); return s.craneCelebration !== null && s.time - s.craneCelebration > 0.1 && s.craneScale[0] > 0.8; });
+      const celebrating = await state();
+      check(`${width}: ordinary motion permits the crane celebration`, !celebrating.reduced && celebrating.craneCelebration !== null && celebrating.craneScale[0] > 0.8, celebrating);
+      await s.page.emulateMedia({ reducedMotion: 'reduce' });
+      await s.page.waitForFunction(() => window.__mediaQA.motion().osReduced);
+      await renderedFrames(s.page, 2);
+      const osPaused = await state();
+      await renderedFrames(s.page);
+      const osStill = await state();
+      check(`${width}: changing OS preference mid-celebration freezes actual object transforms`, osPaused.reduced && osPaused.osReduced && osPaused.craneCelebration !== null && osPaused.time === osStill.time && frozenTransforms(osPaused, osStill), { before: osPaused, after: osStill });
+      await s.page.emulateMedia({ reducedMotion: 'no-preference' });
+      await s.page.waitForFunction(() => { const s = window.__mediaQA.motion(); return !s.reduced && s.craneCelebration === null; });
+      const finished = await state();
+      check(`${width}: resumed celebration completes with the original crane scale`, finished.time > osStill.time && sameVector(finished.craneScale, [0.75, 0.75, 0.75]) && Math.abs(finished.postcardY - finished.postcardBaseY) <= 0.12000001, finished);
+    } finally { await s.close(); }
+  }
+}
+
 (async () => {
   try {
+    if (!motionOnly) {
     for (const width of [390, 1440]) {
       const s = await scenario(width, { hold: true });
       try {
@@ -186,22 +294,12 @@ const fullRequests = list => list.filter(file => file !== 'portrait-square.jpg')
       try { await s.load(); for (const station of ['journey','projects','contact']) await jump(s.page,station); check('No-WebGL navigation never downloads optional 3D scene photos', await s.page.evaluate(() => document.documentElement.classList.contains('no-webgl')) && fullRequests(s.requested).length === 0, { requested:s.requested }); }
       finally { await s.close(); }
     }
-    {
-      const s = await scenario(390, { hold: true });
-      try {
-        await s.load('#projects'); await s.waitRequest('proofmode.jpg'); const before = await s.page.evaluate(() => window.__mediaQA.state());
-        const supported = await s.page.evaluate(() => window.__mediaQA.loseContext());
-        if (!supported) throw new Error('WEBGL_lose_context unavailable; cannot claim context-loss coverage.');
-        await s.page.waitForFunction(() => window.__mediaQA.state().sceneFailed);
-        s.release(); await s.page.evaluate(() => window.__mediaQA.settled('proofmode'));
-        const after = await s.page.evaluate(() => ({ ...window.__mediaQA.state(), fallback: !document.querySelector('#boot-fallback').hidden }));
-        check('Context loss prevents pending photo application after response completion', after.sceneFailed && after.fallback && !after.proofTexture && after.proofHitScale === before.proofHitScale && after.holoVersion === before.holoVersion, after);
-      } finally { await s.close(); }
     }
     }
+    if (!viewsOnly) { await contextLossScenario(); await motionScenarios(); }
     check('Progressive-media scenarios have no uncaught JavaScript errors', errors.length === 0, errors);
   } catch (error) { runtimeFailure = { name: error.name, message: error.message }; console.error(error); process.exitCode = 1; }
-  finally { if (output) fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({ timestamp:new Date().toISOString(),browserVersion,scope:viewsOnly?'views':'full',completed:!runtimeFailure,runtimeFailure,results,errors },null,2)); }
+  finally { if (output) fs.writeFileSync(path.join(output,'results.json'),JSON.stringify({ timestamp:new Date().toISOString(),browserVersion,dependencyMode,scope:motionOnly?'motion':viewsOnly?'views':'full',completed:!runtimeFailure,runtimeFailure,results,errors },null,2)); }
   if (results.some(r=>!r.passed)) process.exitCode=1;
   console.log(`${results.filter(r=>r.passed).length}/${results.length} media checks passed; completed=${!runtimeFailure}.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});
