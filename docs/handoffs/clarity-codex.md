@@ -20,5 +20,6 @@
 ## Release
 
 - Branch: `codex/clarity-analytics`
-- Pull request: recorded after publication.
+- Implementation commit: `80ab9a7`
+- Pull request: <https://github.com/akabonge/alo_rag2/pull/22>
 - Remaining acceptance: confirm the production page requests the project tag after merge. Clarity states that dashboard data can take up to two hours to appear.
