@@ -66,7 +66,10 @@ export async function bindProductionAssets(sha, { fetchImpl = fetch } = {}) {
 export async function main(argv = process.argv.slice(2), env = process.env) {
   if (argv.length !== 1 || !['--production', '--deployment-event'].includes(argv[0])) throw new Error('Use --production or --deployment-event. Production performs one live Ask request; deployment checks use no model.');
   const deployment = argv[0] === '--deployment-event';
-  const target = deployment ? deploymentTarget(JSON.parse(await fs.readFile(env.GITHUB_EVENT_PATH, 'utf8'))) : { origin: PRODUCTION_ORIGIN, environment: 'Production' };
+  // GITHUB_EVENT_PATH is reserved by Actions and points at workflow_run.json.
+  // The deployment resolver writes a separate, already validated handoff file.
+  if (deployment && !env.DEPLOYMENT_EVENT_PATH) throw new Error('DEPLOYMENT_EVENT_PATH is required for deployment checks');
+  const target = deployment ? deploymentTarget(JSON.parse(await fs.readFile(env.DEPLOYMENT_EVENT_PATH, 'utf8'))) : { origin: PRODUCTION_ORIGIN, environment: 'Production' };
   let checkedOrigin = target.origin, verifiedAssets;
   if (deployment && target.environment === 'Production') {
     verifiedAssets = await bindProductionAssets(target.sha);

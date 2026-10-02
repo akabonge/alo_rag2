@@ -61,6 +61,13 @@ test('Trusted workflow resolves the successful Vercel deployment for the tested 
   await assert.rejects(resolveDeployment('bad', { fetchImpl, token: 'test-token', attempts: 1 }), /full deployment commit SHA/);
 });
 
+test('Deployment CLI requires its dedicated resolver handoff instead of the reserved Actions event path', async () => {
+  await assert.rejects(
+    import('../scripts/health/check-live.mjs').then(({ main }) => main(['--deployment-event'], { GITHUB_EVENT_PATH: 'workflow-run.json' })),
+    /DEPLOYMENT_EVENT_PATH is required/,
+  );
+});
+
 test('Redirect transport failure and unresolved 3xx are failures, not the former false green', async () => {
   let calls = 0;
   await assert.rejects(request(origin, { fetchImpl: async () => {
