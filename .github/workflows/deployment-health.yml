@@ -1,0 +1,43 @@
+# workflow_run executes this file from the trusted default branch. Pull-request
+# code cannot replace the checker or redirect the optional preview credential.
+name: Deployed site health
+on:
+  workflow_run:
+    workflows: [Portfolio quality]
+    types: [completed]
+permissions:
+  contents: read
+  deployments: read
+concurrency:
+  group: deployed-site-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+jobs:
+  smoke:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Resolve the successful Vercel deployment for the tested commit
+        run: node scripts/health/wait-deployment.mjs --sha "${{ github.event.workflow_run.head_sha }}" --output "$RUNNER_TEMP/deployment-event.json"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: Validate deployed pages and APIs without a model call or guestbook write
+        run: node scripts/health/check-live.mjs --deployment-event
+        env:
+          GITHUB_EVENT_PATH: ${{ runner.temp }}/deployment-event.json
+          # Optional. The checker sends this only to the validated immutable
+          # alorag2 deployment origin; protected previews otherwise fail closed.
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-health-${{ github.event.workflow_run.head_sha }}
+          path: test-results/health
+          if-no-files-found: warn

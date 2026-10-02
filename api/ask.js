@@ -2,11 +2,12 @@
 // Retrieval runs here over the same corpus as the site, then Claude writes a grounded answer.
 // Env vars (Vercel → Project → Settings → Environment Variables):
 //   ANTHROPIC_API_KEY  (required)   ANTHROPIC_MODEL (optional, default Claude Haiku 4.5)
+//   KV_REST_API_URL/TOKEN or UPSTASH_REDIS_REST_URL/TOKEN (shared attempt limit)
 import { buildCorpus, makeIndex, ragPrompt } from '../src/ask.js';
+import { consumeAskAttempt } from '../lib/ask-rate-limit.js';
 
 const search = makeIndex(buildCorpus());
-const recent = new Map(); // best-effort per-instance rate limit
-const RATE_WINDOW = 60_000, MAX_CLIENTS = 2000, UPSTREAM_TIMEOUT = 12_000;
+const UPSTREAM_TIMEOUT = 12_000;
 // Answer cache: the same question (normalized) is answered once per warm instance, for 24 h.
 // Suggested questions get asked over and over, so this removes most of the paid calls.
 const cache = new Map(), TTL = 24 * 3600 * 1000, MAX = 300;
@@ -25,15 +26,16 @@ export default async function handler(req, res) {
   const q = body.question.replace(/\s+/g, ' ').trim().slice(0, 300);
   if (!q) return res.status(400).json({ error: 'Ask a question' });
 
-  const ip = String(req.headers['x-forwarded-for'] || 'anon').split(',')[0].trim();
-  const now = Date.now();
-  for (const [client, timestamps] of recent) {
-    if (now - timestamps[timestamps.length - 1] >= RATE_WINDOW) recent.delete(client);
+  // Charge every valid attempt, including cache hits, off-topic questions and
+  // provider failures. An unavailable limiter must never open a paid-call path.
+  let limit;
+  try { limit = await consumeAskAttempt(req.headers['x-forwarded-for']); }
+  catch { return res.status(503).json({ error: 'Ask is temporarily unavailable. Please try again later.' }); }
+  if (!limit.allowed) {
+    res.setHeader('Retry-After', String(limit.retryAfter));
+    return res.status(429).json({ error: 'Too many questions. Please try again shortly.' });
   }
-  const times = (recent.get(ip) || []).filter((t) => now - t < RATE_WINDOW);
-  if (times.length >= 8) return res.status(429).json({ error: 'Too many questions, try again in a minute' });
-  if (!recent.has(ip) && recent.size >= MAX_CLIENTS) recent.delete(recent.keys().next().value);
-  times.push(now); recent.set(ip, times);
+  const now = Date.now();
 
   const key = norm(q), hit = cache.get(key);
   if (hit && now - hit.t < TTL) return res.json({ ...hit.v, cached: true });

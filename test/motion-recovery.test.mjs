@@ -9,19 +9,19 @@ const end = main.indexOf('\n  });', start);
 assert.ok(start >= 0 && end > start, 'Update watchdog extraction after scene restructuring');
 const watchdog = new vm.Script(main.slice(start, end));
 
-test('Slow rendering still downgrades and offers the text path with decorative time frozen', () => {
+test('Slow rendering downgrades once without covering the portfolio with another prompt', () => {
   const actions = [];
   const ctx = vm.createContext({ frames: 0, slow: 0, watched: false, performanceElapsed: 5, raw: 0.04, t: 0, dt: 0, tier: 'high',
-    HIGH() { return ctx.tier === 'high'; }, applyTier() { actions.push('low'); }, offerLite(reason) { actions.push(reason); },
+    HIGH() { return ctx.tier === 'high'; }, applyTier() { actions.push('low'); },
   });
   for (let i = 0; i < 300; i++) watchdog.runInContext(ctx);
-  assert.deepEqual(actions, ['low', 'slow']);
+  assert.deepEqual(actions, ['low']);
   assert.equal(ctx.watched, true);
 });
 
 test('Healthy frame timing completes measurement while animation is paused', () => {
   const ctx = vm.createContext({ frames: 0, slow: 0, watched: false, performanceElapsed: 5, raw: 1 / 60, t: 0, dt: 0,
-    HIGH: () => true, applyTier: () => assert.fail('Healthy renderer should retain its tier'), offerLite: () => assert.fail('No slow-render offer expected'),
+    HIGH: () => true, applyTier: () => assert.fail('Healthy renderer should retain its tier'),
   });
   for (let i = 0; i < 150; i++) watchdog.runInContext(ctx);
   assert.equal(ctx.frames, 150);

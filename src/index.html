@@ -3,7 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico?v=2" sizes="16x16 32x32 48x48">
+<link rel="icon" href="/favicon-16x16.png?v=2" type="image/png" sizes="16x16">
+<link rel="icon" href="/favicon-32x32.png?v=2" type="image/png" sizes="32x32">
+<link rel="icon" href="/favicon-192x192.png?v=2" type="image/png" sizes="192x192">
+<link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml" sizes="any">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" sizes="180x180">
 <title>AI Alo 3D</title>
 <meta name="description" content="Aloysious Kabonge, AI/ML Engineer. A real-time 3D journey from Uganda to Fredericksburg through experience, projects and live AI demos.">
 <!-- Share cards (LinkedIn, iMessage, X, Slack). Change SITE URL if you deploy somewhere other than 3d.aialo.io -->
@@ -55,13 +60,8 @@ h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-
 .no-webgl [data-flight] { display: none; }
 .no-webgl body, body.no-webgl { background: radial-gradient(120% 80% at 70% 0%, #1a2552 0%, var(--night) 60%); }
 
-/* ---------- Loader ---------- */
-#loader { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: var(--night); transition: opacity 0.9s ease, visibility 0.9s; }
-#loader.done { opacity: 0; visibility: hidden; }
-.loader-inner { display: grid; gap: var(--s0); justify-items: center; text-align: center; padding-inline: 16px; }
-.loader-count { font: 800 clamp(3.5rem, 14vw, 7rem)/1 var(--f-display); color: var(--text); font-variant-numeric: tabular-nums; }
-.loader-bar { width: min(260px, 70vw); height: 2px; background: var(--line); overflow: hidden; }
-.loader-bar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width 0.25s ease; }
+/* The page content is usable immediately while the 3D scene builds behind it. */
+#loader { display: none; visibility: hidden; }
 
 /* ---------- HUD ---------- */
 .hud-top { position: fixed; top: 0; left: 0; right: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: var(--s0);
@@ -153,9 +153,6 @@ main { position: relative; z-index: 10; pointer-events: none; }
 #scrim { position: fixed; inset: 0; z-index: 44; background: rgba(3, 5, 12, 0.45); opacity: 0; visibility: hidden; transition: 0.4s; }
 #scrim.show { opacity: 1; visibility: visible; }
 
-.boot { font: 400 0.72rem/1.7 var(--f-mono); color: var(--muted); text-align: left; min-height: 7em; width: min(340px, 80vw); }
-.boot div::before { content: "› "; color: var(--gold); }
-.boot div:last-child { color: var(--text); }
 .km { font: 500 0.72rem/1 var(--f-mono); letter-spacing: 0.12em; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .km b { color: var(--gold); font-weight: 500; }
 .hero-id { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
@@ -209,7 +206,8 @@ main { position: relative; z-index: 10; pointer-events: none; }
 .chip-btn.mic.live { border-color: #ff6b6b; color: #ffb3b3; }
 #tour { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); z-index: 34; width: min(640px, calc(100% - 32px)); background: rgba(8,12,30,0.95); border: 1px solid rgba(232,181,74,0.6); border-radius: 16px; padding: 14px 16px 12px; display: grid; gap: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
 .tour-bar { height: 3px; background: var(--line); border-radius: 3px; overflow: hidden; } .tour-bar i { display: block; height: 100%; width: 0; background: var(--gold); }
-.tour-body { display: grid; gap: 4px; } .tour-body p { margin: 0; font-size: 1rem; color: var(--text); }
+.tour-body { display: grid; gap: 4px; }
+#tour-text { margin: 0; max-width: 58ch; color: #fff; font-size: clamp(1rem, 2.4vw, 1.125rem); line-height: 1.55; text-wrap: pretty; }
 .tour-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .touring .panel, .touring .hero-copy { pointer-events: none; }
 #flight-hud { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); z-index: 34; width: min(320px, calc(100% - 32px)); background: rgba(8,12,30,0.92); border: 1px solid rgba(232,181,74,0.55); border-radius: 16px; padding: 14px 16px; display: grid; gap: 8px; }
@@ -296,10 +294,6 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
 .station .panel { scroll-margin-top: 110px; }
 #ask { background: rgba(8, 12, 30, 0.97); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); max-height: calc(100dvh - 160px); overflow-y: auto; box-shadow: 0 18px 60px rgba(0,0,0,0.55); }
 #ask-toggle { box-shadow: 0 6px 24px rgba(0,0,0,0.45); }
-#lite-offer { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 70px); z-index: 45; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 32px); background: rgba(8,12,30,0.96); border: 1px solid var(--gold); border-radius: 14px; padding: 10px 12px 10px 16px; font: 500 0.8rem/1.3 var(--f-mono); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
-#lite-offer[hidden] { display: none; }
-#lite-offer a { color: var(--gold); }
-#lite-offer button { appearance: none; background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; padding: 4px 6px; }
 .how { border-top: 1px solid var(--line); padding-top: 10px; font: 400 0.74rem/1.5 var(--f-body); color: var(--muted); }
 .how summary { cursor: pointer; font: 500 0.72rem/1 var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--signal); list-style: none; }
 .how summary::-webkit-details-marker { display: none; }
@@ -317,8 +311,6 @@ body::after { content: ""; position: fixed; left: 0; right: 0; bottom: 0; height
 .voice-toggle { min-height: 44px; line-height: 1.4; font-size: 0.75rem; }
 .how summary { min-height: 44px; display: flex; align-items: center; }
 h2 .inline-link { min-height: 44px; display: inline-block; vertical-align: baseline; }
-#lite-offer button { min-width: 44px; min-height: 44px; }
-#lite-offer a { display: inline-flex; align-items: center; min-height: 44px; }
 .hint a { pointer-events: auto; }
 .rail { gap: 2px; }
 .rail button { min-height: 44px; min-width: 44px; }
@@ -345,7 +337,6 @@ dialog::backdrop { background: rgba(3, 5, 12, 0.7); }
 .section-menu nav { position: absolute; bottom: 54px; right: 0; width: min(340px, calc(100vw - 32px)); max-height: calc(100dvh - 152px); overflow-y: auto; padding: 12px; background: #0c1330; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 12px 48px #0009; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
 .section-menu a { padding: 11px 10px; min-height: 44px; font-size: 0.9rem; text-decoration: none; border-radius: 8px; }
 .section-menu a:hover, .section-menu a[aria-current="location"] { background: #e8b54a1a; color: var(--gold); }
-.loader-link { color: var(--signal); padding: 12px; }
 #boot-fallback { position: relative; z-index: 21; margin: 112px 16px 16px; padding: 16px; border: 1px solid var(--gold); border-radius: 12px; background: var(--deep); }
 #boot-fallback a { color: var(--signal); }
 .station { scroll-margin-top: 100px; }
@@ -404,7 +395,6 @@ dialog::backdrop { background: rgba(3, 5, 12, 0.7); }
 .ask-note, .portrait-btn::after { font-size: 0.75rem; }
 .section-menu nav [data-motion] { grid-column: 1 / -1; min-height: 44px; }
 .motion-paused *, .motion-paused *::before, .motion-paused *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #flight-hud:not([hidden])) #lite-offer { display: none; }
 #skill-card { max-height: calc(var(--visible-height, 100dvh) - 150px); overflow-y: auto; }
 @media (max-width: 1800px) { .km { display: none; } }
 .controls-compact {
@@ -419,7 +409,7 @@ body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #fl
   .section-menu[open] summary { border-color: var(--signal); color: var(--signal); }
   .hint { display: none; }
   #ask { left: 8px; right: 8px; width: auto; bottom: calc(var(--keyboard-inset, 0px) + var(--dock-h, 64px) + 8px); max-height: calc(var(--visible-height, 100dvh) - var(--dock-h, 64px) - 24px); border-radius: 20px; }
-  #skill-card, #tour, #flight-hud, #lite-offer { bottom: calc(var(--dock-h, 64px) + 8px); }
+  #skill-card, #tour, #flight-hud { bottom: calc(var(--dock-h, 64px) + 8px); }
   #skill-card { z-index: 31; }
   .skills-station .panel { position: static; }
   .station, .station[data-side="right"], .hero, .station.welcome { padding-block: max(110px, calc(var(--hud-h, 90px) + 12px)) calc(var(--dock-h, 64px) + 40px); }
@@ -445,21 +435,20 @@ body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #fl
   #ask, .controls-compact #ask { bottom: calc(var(--keyboard-inset, 0px) + 8px); max-height: calc(var(--visible-height, 100dvh) - 16px); z-index: 36; }
   .station, .station[data-side="right"], .hero, .station.welcome { padding-top: 100px; }
 }
+#voice-feedback { position: fixed; z-index: 37; top: calc(var(--hud-h, 90px) + 8px); right: 12px; width: min(340px, calc(100% - 24px)); max-height: 40svh; overflow-y: auto; padding: 12px; background: #080e20; border: 1px solid var(--line); border-radius: 14px; }
+#voice-feedback p, #tour-status { margin: 0; font-size: 0.875rem; }
+#voice-feedback .cta-row { margin-top: 8px; }
+#ask #voice-feedback { position: static; width: 100%; max-height: none; }
+.tour-actions { flex-wrap: wrap; }
+body:has(#ask:not([hidden])) #experience-controls { visibility: hidden; }
+.welcome-card .cta { min-height: 45px; }
 </style>
 
 </head>
 <body>
 <canvas id="world" aria-hidden="true"></canvas>
 
-<div id="loader" role="status" aria-live="polite">
-  <div class="loader-inner">
-    <span class="eyebrow">Building the world</span>
-    <div class="loader-count" id="loader-count">00</div>
-    <div class="loader-bar"><i id="loader-bar"></i></div>
-    <div class="boot" id="boot" aria-hidden="true"></div>
-    <a class="loader-link" href="text.html">Read the fast text version</a>
-  </div>
-</div>
+<div id="loader" hidden aria-hidden="true"></div>
 
 <header class="hud-top">
   <a class="brand" href="#hero" data-jump="hero"><b>AK</b> AI Alo</a>
@@ -469,7 +458,7 @@ body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #fl
     <button class="chip-btn opt" type="button" data-tour>Tour</button>
     <button class="chip-btn opt" type="button" data-motion aria-pressed="false">Pause motion</button>
     <button class="chip-btn opt" type="button" data-guestbook title="Leave a note that becomes a star in the sky">✦ Leave a star</button>
-    <button class="chip-btn" id="sound" data-sound type="button" aria-pressed="false" aria-label="Play original ambient score"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>Sound</button>
+    <button class="chip-btn" id="sound" data-sound type="button" aria-pressed="false" aria-label="Play original ambient score"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-sound-label>Sound</span></button>
     <a class="chip-btn" href="https://aialo.io" target="_blank" rel="noopener">2D site ↗</a>
   </div>
 </header>
@@ -489,7 +478,7 @@ body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #fl
   </nav>
 </details>
 <button class="chip-btn" type="button" data-tour>Tour</button>
-<button class="chip-btn" id="dock-sound" data-sound type="button" aria-pressed="false" aria-label="Play original ambient score"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>Sound</button>
+<button class="chip-btn" id="dock-sound" data-sound type="button" aria-pressed="false" aria-label="Play original ambient score"><span class="eq" aria-hidden="true"><i></i><i></i><i></i></span><span data-sound-label>Sound</span></button>
 </nav>
 <p id="boot-fallback" hidden role="status">The 3D experience could not finish loading. <a href="text.html">Read the complete portfolio in the fast text version</a>.</p>
 <noscript><style>#loader { display: none; }</style><p style="position:relative;z-index:21;margin:112px 16px 16px">JavaScript is off. <a href="text.html">Read the complete portfolio</a>.</p></noscript>
@@ -660,19 +649,19 @@ body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #fl
       <li><b>Search runs on your device.</b> BM25 keyword ranking over this site’s own content (about 57 sections). Instant, free, and it flies the camera to the best source.</li>
       <li><b>Grounding check.</b> A section must match at least half of your question’s key-word groups and enough terms known to the site, so one stray word (“white” in “White House”) can’t pull in the wrong answer.</li>
       <li><b>Claude writes the answer.</b> Your question goes to a Vercel function, which independently retrieves up to 3 sections and calls Anthropic’s Claude API. The prompt asks it to use those sources, cite them like [1], and acknowledge missing information.</li>
-      <li><b>Cost and abuse controls.</b> The browser caches answers for the tab session. Each warm server instance caches answers for up to 24 hours and applies a best-effort limit of 8 questions per IP per minute; this is not a limit shared across all instances. Replies are capped at 220 tokens. The API key stays on the server.</li>
+      <li><b>Cost and abuse controls.</b> The browser caches answers for the tab session. Warm server instances cache answers for up to 24 hours, while Redis applies a shared rolling limit of 8 valid attempts per IP per minute. Replies are capped at 220 tokens. The API key stays on the server.</li>
       <li><b>Fallback.</b> If AI generation is unavailable, you still get matching sentences extracted from the source. Generated answers can make mistakes; check their cited sources.</li>
     </ol>
     <p class="how-src">Code: <a href="https://github.com/akabonge/alo_rag2" target="_blank" rel="noopener">github.com/akabonge/alo_rag2</a> · <a href="https://github.com/akabonge/alo_rag2/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">architecture</a></p>
   </details>
 </div>
+<div id="voice-feedback" hidden><p id="voice-status" role="status" aria-live="polite"></p><div class="cta-row"><button id="voice-retry" class="chip-btn" type="button" hidden>Retry audio</button><button id="voice-dismiss" class="chip-btn" type="button">Stop voice</button></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<div id="lite-offer" hidden role="status"><span>Running slowly on this device?</span> <a href="text.html">Open the fast text version</a><button type="button" aria-label="Dismiss">✕</button></div>
-
 <div id="tour" hidden role="status" aria-live="polite">
   <div class="tour-bar"><i id="tour-progress"></i></div>
   <div class="tour-body"><span class="eyebrow" id="tour-step"></span><p id="tour-text"></p></div>
-  <div class="tour-actions"><label class="voice-toggle"><input type="checkbox" id="tour-voice" checked> Narration (my voice)</label><button class="chip-btn" type="button" id="tour-skip">End tour</button></div>
+  <p id="tour-status"></p>
+  <div class="tour-actions"><label class="voice-toggle"><input type="checkbox" id="tour-voice" checked> Narration (my voice)</label><button class="chip-btn" type="button" id="tour-replay">Replay narration</button><button class="chip-btn" type="button" id="tour-browser-voice" hidden>Read caption</button><button class="chip-btn" type="button" id="tour-next">Next stop</button><button class="chip-btn" type="button" id="tour-skip">End tour</button></div>
 </div>
 
 <div id="flight-hud" hidden aria-label="Flight progress">
@@ -722,7 +711,7 @@ body:has(#ask:not([hidden]), #tour:not([hidden]), #skill-card:not([hidden]), #fl
 } }
 </script>
 <script src="./boot.js?v=18"></script>
-<script id="portfolio-main" type="module" src="./main.js?v=20"></script>
+<script id="portfolio-main" type="module" src="./main.js?v=22"></script>
 
 </body>
 </html>
