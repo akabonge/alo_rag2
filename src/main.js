@@ -13,11 +13,11 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { gsap } from 'gsap';
 import Lenis from 'lenis';
-import { PROFILE, ORIGIN, DEST, TIMELINE, EXPERIENCE, PROJECTS, DEMOS, SKILLS, STATIONS, IMAGES, ASK_ENDPOINT, SOUNDTRACK, PLACES, STRENGTHS, COMMUNITY, GUESTBOOK_ENDPOINT, TOUR, UGANDA_FACTS, DREAMS } from './content.js';
+import { PROFILE, ORIGIN, DEST, TIMELINE, EXPERIENCE, PROJECTS, DEMOS, SKILLS, STATIONS, IMAGES, ASK_ENDPOINT, SOUNDTRACK, PLACES, STRENGTHS, COMMUNITY, GUESTBOOK_ENDPOINT, TOUR, UGANDA_FACTS, DREAMS } from './content.js?v=24';
 import { LAND_N, decodeLand, UGANDA_DOTS } from './landmask.js?v=16';
 import { US_DOTS, US_PINS } from './usmap.js?v=16';
 import { ugandaFlag, usFlag } from './flags.js?v=16';
-import { buildCorpus, makeIndex, extract, ragPrompt } from './ask.js?v=17';
+import { buildCorpus, makeIndex, extract, ragPrompt } from './ask.js?v=24';
 import { fetchJSON } from './network.js?v=17';
 import { localAtmosphere, placeLabels } from './atmosphere.js?v=18';
 import { createImageLoader, createStationMedia } from './media.js?v=19';
@@ -713,7 +713,7 @@ document.querySelectorAll('.resume-link').forEach((a) => a.addEventListener('cli
     const dl = await window.claude.use('downloads');
     if (!dl) throw new Error('no downloads');
     const blob = await fetch(a.getAttribute('href')).then((r) => r.blob());
-    await dl.save({ filename: 'Aloysious_Kabonge_AI_ML_Engineer_Resume.pdf', data: blob });
+    await dl.save({ filename: 'Aloysious Kabonge Resume.pdf', data: blob });
   } catch (err) {
     if (err?.code === 'cancelled' || err?.code === 'declined') return;
     toast('The resume download opens on aialo.io');
