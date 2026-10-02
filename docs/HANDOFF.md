@@ -16,6 +16,7 @@ The team works in separate Git worktrees. This file is a checked-in index; it do
 | Claude | `../alo-claude` | UX, architecture, review |
 | Codex | `../alo-codex` | Implementation, validation, assigned integration |
 | Grok / Cline | `../alo-grok` | Research, critique, edge cases |
+| Phi, Llama (local) | None (`scripts/office/local.ps1`) | Private drafts for the other desks: proofreading, plain language, summaries, commit messages |
 
 ## Initial queue
 
