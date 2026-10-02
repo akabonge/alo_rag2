@@ -65,7 +65,11 @@ async function clickVisible(page, selector) { await page.locator(selector).filte
         await page.locator('#voice-retry').click();
         await page.waitForFunction(() => document.querySelector('#voice-status').textContent.includes('Playing'));
         check(`${width}: a direct retry plays on the same recording element`, await page.evaluate(() => window.__recordings.length === 1 && !window.__recordings[0].paused), await page.evaluate(() => window.__playCalls.slice(-2)));
-        await page.locator('#voice-dismiss').click();
+        // Dispatch synchronously: this short greeting can end between Playwright's
+        // visibility check and pointer action on slower CI runners.
+        await page.locator('#voice-dismiss').evaluate(button => button.click());
+        await page.waitForFunction(() => window.__recordings[0].paused);
+        check(`${width}: Stop voice halts the shared recording element`, true);
         await clickVisible(page, '[data-sound]');
         await page.waitForFunction(() => window.__contexts.length && window.__contexts[0].state === 'running' && [...document.querySelectorAll('[data-sound]')].every(el => el.getAttribute('aria-pressed') === 'true'));
         await page.evaluate(() => window.__contexts[0].suspend());
