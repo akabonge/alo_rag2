@@ -52,9 +52,14 @@ async function screenshot(page, name) { if (output) await page.screenshot({ path
       const off = await soundState();
       check('Sound opt-out suspends audio and synchronizes both controls', off.contexts.length === 1 && off.contexts[0] !== 'running' && off.pressed.every(value => value === 'false'), off);
 
-      await page.locator('#ask-toggle').click(); await page.locator('#section-menu summary').click();
-      await page.waitForFunction(() => document.querySelector('#ask').hidden);
-      check('Explore closes Ask while keeping navigation open', await page.evaluate(() => document.querySelector('#ask').hidden && document.querySelector('#section-menu').open), {});
+      await page.locator('#ask-toggle').click();
+      check('Ask makes the compact dock inert so it cannot overlap the question panel', await page.evaluate(() => {
+        const dock = document.querySelector('#experience-controls');
+        return !document.querySelector('#ask').hidden && dock.inert && getComputedStyle(dock).opacity === '0';
+      }), {});
+      await page.keyboard.press('Escape');
+      await page.locator('#section-menu summary').click();
+      check('Explore opens after Ask closes and the compact dock is restored', await page.evaluate(() => document.querySelector('#ask').hidden && document.querySelector('#section-menu').open && !document.querySelector('#experience-controls').inert), {});
       await page.locator('#ask-toggle').click();
       check('Ask closes Explore while keeping the question panel open', await page.evaluate(() => !document.querySelector('#ask').hidden && !document.querySelector('#section-menu').open), {});
       await page.keyboard.press('Escape');
