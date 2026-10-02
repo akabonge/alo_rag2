@@ -143,6 +143,15 @@ test('greeting sequence reuses permission and starting Tour cancels old sequence
   const stale = h.clips[0].onended; h.gesture(h.startTour); await flush(); h.clips[0].ended = true; stale(); h.clock.tick(1000);
   assert.equal(h.calls.length, 3); assert.equal(h.calls[2].src, 'assets/tour-1.mp3?v=22'); assert.deepEqual(h.speech, []);
 });
+test('Gyendi stays replayable and successful greeting audio does not show a playback banner', async () => {
+  const h = voiceHarness(); h.$('#greet-reply').hidden = false;
+  h.click('#greet-reply'); await flush();
+  assert.equal(h.$('#greet-reply').hidden, false); assert.equal(h.$('#oli-reply').hidden, false);
+  assert.equal(h.$('#voice-feedback').hidden, true); assert.equal(h.calls[0].src, 'assets/gyendi.mp3?v=22');
+  h.click('#greet-reply'); await flush();
+  assert.equal(h.calls.length, 2); assert.equal(h.calls[1].src, 'assets/gyendi.mp3?v=22');
+  assert.equal(h.$('#voice-feedback').hidden, true);
+});
 test('recording failure and later rejection produce retry UI without impersonating the recording', async () => {
   const h = voiceHarness(), pending = deferred(); h.queue(pending.promise); h.gesture(() => h.playVoice('missing.mp3', 'Welcome'));
   h.clips[0].emit('error'); pending.reject(new Error('decode')); await flush();

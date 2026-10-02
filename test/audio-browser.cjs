@@ -58,13 +58,21 @@ async function clickVisible(page, selector) { await page.locator(selector).filte
         check(`${width}: tour controls fit the viewport`, !layout.overflow && layout.top >= 0 && layout.bottom <= layout.viewport + 1, layout);
         await page.screenshot({ path: path.join(out, `tour-${width}.png`) });
         await page.locator('#tour-skip').click();
+        const greetingCalls = await page.evaluate(() => window.__playCalls.length);
+        await page.locator('#greet-reply').click();
+        await page.waitForFunction(() => window.__recordings[0].currentSrc.includes('gyendi.mp3') && !window.__recordings[0].paused);
+        const greeting = await page.evaluate(() => ({ replyButtonVisible: !document.querySelector('#greet-reply').hidden, replyVisible: !document.querySelector('#oli-reply').hidden, feedbackHidden: document.querySelector('#voice-feedback').hidden }));
+        await page.locator('#greet-reply').click();
+        await page.waitForFunction(before => window.__playCalls.length >= before + 2 && window.__recordings[0].currentSrc.includes('gyendi.mp3'), greetingCalls);
+        check(`${width}: Gyendi remains replayable without a playback banner`, greeting.replyButtonVisible && greeting.replyVisible && greeting.feedbackHidden, greeting);
+        await page.locator('#voice-dismiss').evaluate(button => button.click());
         await page.evaluate(() => { window.__blockedPlay = true; });
         await page.locator('#hear-greet').click();
         await page.waitForFunction(() => !document.querySelector('#voice-retry').hidden);
         check(`${width}: denied recording shows actionable continuation`, (await page.locator('#voice-status').innerText()).includes('paused'), await page.locator('#voice-status').innerText());
         await page.locator('#voice-retry').click();
-        await page.waitForFunction(() => document.querySelector('#voice-status').textContent.includes('Playing'));
-        check(`${width}: a direct retry plays on the same recording element`, await page.evaluate(() => window.__recordings.length === 1 && !window.__recordings[0].paused), await page.evaluate(() => window.__playCalls.slice(-2)));
+        await page.waitForFunction(() => !window.__recordings[0].paused && document.querySelector('#voice-feedback').hidden);
+        check(`${width}: a direct retry plays unobtrusively on the same recording element`, await page.evaluate(() => window.__recordings.length === 1 && !window.__recordings[0].paused && document.querySelector('#voice-feedback').hidden), await page.evaluate(() => window.__playCalls.slice(-2)));
         // Dispatch synchronously: this short greeting can end between Playwright's
         // visibility check and pointer action on slower CI runners.
         await page.locator('#voice-dismiss').evaluate(button => button.click());
