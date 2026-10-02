@@ -31,7 +31,7 @@ jobs:
       - name: Validate deployed pages and APIs without a model call or guestbook write
         run: node scripts/health/check-live.mjs --deployment-event
         env:
-          GITHUB_EVENT_PATH: ${{ runner.temp }}/deployment-event.json
+          DEPLOYMENT_EVENT_PATH: ${{ runner.temp }}/deployment-event.json
           # Optional. The checker sends this only to the validated immutable
           # alorag2 deployment origin; protected previews otherwise fail closed.
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
