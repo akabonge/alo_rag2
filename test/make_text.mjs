@@ -16,6 +16,7 @@ const html = `<!doctype html>
 <link rel="icon" href="/favicon-192x192.png?v=2" type="image/png" sizes="192x192">
 <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml" sizes="any">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" sizes="180x180">
+<script src="./clarity.js?v=1"></script>
 <title>${e(P.name)} · AI/ML Engineer (text version)</title>
 <meta name="description" content="${e(P.pitch)}">
 <link rel="canonical" href="https://3d.aialo.io/text.html">

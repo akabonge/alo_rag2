@@ -20,6 +20,7 @@ flowchart TB
     Browser -->|Read or add notes| Guest
     Guest <-->|REST pipeline| Redis[Upstash Redis]
     Browser -.->|Conditional script| Analytics[Vercel Analytics]
+    Browser -.->|Canonical production host only| Clarity[Microsoft Clarity]
     Browser -->|External links| Demos[Separate project demos]
 ```
 
@@ -175,6 +176,7 @@ Versions below are the repository's declared versions, not claims about the late
 | Node.js/npm | No engine version pinned | API JavaScript, text generator and development commands |
 | Python 3 | Standard library only | Wraps the main HTML template |
 | Vercel | `vercel.json` | Static serving and serverless functions; optional analytics script |
+| Microsoft Clarity | `src/clarity.js` | Production-only session analytics for the main, text and ProofMode pages |
 | Anthropic Messages API | Native HTTPS fetch | Generates cited answers from retrieved portfolio sources |
 | Upstash Redis REST API | Native HTTPS fetch | Shared guestbook state and Ask attempt counters |
 | Web Audio API | Browser | Synthesized ambient sound and effects |
@@ -215,7 +217,7 @@ flowchart LR
 
 Secrets belong in the server environment, never in `src/`. Questions travel to the Ask function and, on an uncached model request, to Anthropic with selected public portfolio facts. Guestbook submissions travel to the function and Redis. HMAC-derived Redis keys use the existing Redis token as their private key material, so raw visitor IPs are not stored in Redis.
 
-The output directory is `src`. Ask has a configured maximum duration of 20 seconds and guestbook 10 seconds; internal upstream/storage deadlines are 12 and 7 seconds respectively. `package-lock.json` records dependency resolution, and the quality workflow tests with Node 24. The deployment Node engine is not pinned in the manifest. Domain, DNS, actual environment values, analytics enablement and deployment success are hosting-account state, not established by these files.
+The output directory is `src`. Ask has a configured maximum duration of 20 seconds and guestbook 10 seconds; internal upstream/storage deadlines are 12 and 7 seconds respectively. `package-lock.json` records dependency resolution, and the quality workflow tests with Node 24. The deployment Node engine is not pinned in the manifest. Microsoft Clarity's public project ID is stored in `src/clarity.js`; recording, masking and retention settings remain account state. Domain, DNS, actual environment values, Vercel Analytics enablement and deployment success are hosting-account state, not established by these files.
 
 ## 7. Operating boundaries and future improvements
 

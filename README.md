@@ -21,6 +21,7 @@ flowchart LR
     Ask --> Claude[Anthropic Claude]
     Browser --> Guestbook[Vercel guestbook API]
     Guestbook --> Redis[Upstash Redis]
+    Browser -.->|Production sessions| Clarity[Microsoft Clarity]
 ```
 
 ## Run locally
@@ -72,7 +73,7 @@ Ask Alo searches the same portfolio corpus in the browser and on the server. The
 
 Guestbook notes become stars. Shared notes use Redis; the browser also contains compatibility fallbacks for a Claude-hosted environment and local-only storage. Recorded Luganda greetings and tour audio live in `src/assets/`; Web Audio generates an original ambient score, and browser speech APIs support voice where available. Music starts only after Sound is selected and suspends in background tabs. Tour narration can be muted immediately. Pause motion and the OS reduced-motion preference preserve a calm reading route.
 
-Deep links jump to portfolio sections. `src/text.html` provides a readable text alternative. Devices that report low memory or a data-saver setting, and devices that stay slow after the automatic drop to low quality, get a dismissible offer to open the text version. The Ask panel's **How this works** section explains the retrieval, grounding and cost controls to visitors. Open Graph metadata, `og.jpg`, `robots.txt`, and `sitemap.xml` support discovery and sharing. The page conditionally loads Vercel Analytics on the configured host families.
+Deep links jump to portfolio sections. `src/text.html` provides a readable text alternative. Devices that report low memory or a data-saver setting, and devices that stay slow after the automatic drop to low quality, get a dismissible offer to open the text version. The Ask panel's **How this works** section explains the retrieval, grounding and cost controls to visitors. Open Graph metadata, `og.jpg`, `robots.txt`, and `sitemap.xml` support discovery and sharing. The main experience conditionally loads Vercel Analytics on configured host families. The main, text and ProofMode pages load Microsoft Clarity project `yr9ooxj17y` only on the canonical `3d.aialo.io` host, excluding local, test and preview traffic.
 
 ## Monitoring
 
