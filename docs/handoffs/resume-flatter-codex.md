@@ -22,5 +22,6 @@
 ## Release
 
 - Branch: `codex/resume-flatter-refresh`
-- Commit and pull request: recorded after publication.
+- Implementation commit: `513cbc4`
+- Pull request: <https://github.com/akabonge/alo_rag2/pull/20>
 - Remaining acceptance: confirm the named download and updated Flatter copy on the production domain after merge.
