@@ -260,13 +260,15 @@ function openAsk() {
   stopVoice();
   $('#section-menu').open = false;
   document.querySelectorAll('dialog[open]').forEach((el) => el.dispatchEvent(new Event('dismiss')));
+  $('#experience-controls').inert = true;
   askPanel.hidden = false; askBtn.setAttribute('aria-expanded', 'true'); askInput.focus({ preventScroll: true });
 }
 function closeAsk({ restoreFocus = true } = {}) {
   askCtl?.abort(); askSequence++; askOut.removeAttribute('aria-busy');
   if (voiceOn()) stopVoice();
   askPanel.hidden = true; askBtn.setAttribute('aria-expanded', 'false');
-  if (restoreFocus) { void askBtn.offsetWidth; askBtn.focus({ preventScroll: true }); }
+  $('#experience-controls').inert = false;
+  if (restoreFocus) askBtn.focus({ preventScroll: true });
 }
 $('#section-menu').addEventListener('toggle', () => {
   if ($('#section-menu').open) { if (!askPanel.hidden) closeAsk({ restoreFocus: false }); endTour(); stopFlight?.(); onLeaveSkills?.(); }
