@@ -4,6 +4,7 @@
 const playwright = require(process.env.PLAYWRIGHT_PACKAGE_PATH || 'playwright');
 const fs = require('node:fs');
 const path = require('node:path');
+const { trackContextErrors } = require('../scripts/health/browser-errors.cjs');
 const engine = process.env.PLAYWRIGHT_BROWSER || 'chromium';
 if (!['chromium', 'firefox', 'webkit'].includes(engine)) throw new Error('Unsupported PLAYWRIGHT_BROWSER.');
 const base = process.argv[2] || 'http://127.0.0.1:5174';
@@ -11,10 +12,12 @@ if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname)) throw
 const output = process.argv[3] ? path.resolve(process.argv[3]) : null;
 if (output) fs.mkdirSync(output, { recursive: true });
 const results = [];
+const pageErrors = [];
 const check = (name, passed, evidence) => { results.push({ name, passed: !!passed, evidence }); console.log(`${passed ? 'PASS' : 'FAIL'} ${name}: ${JSON.stringify(evidence)}`); };
 let browser, runtimeFailure;
 async function open(width = 390, height = 844, options = {}) {
   const ctx = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', hasTouch: width < 1100, ...(engine !== 'firefox' ? { isMobile: width < 768 } : {}), ...options });
+  trackContextErrors(ctx, pageErrors);
   await ctx.route('**/api/guestbook', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"notes":[]}' }));
   await ctx.route('**/api/ask', route => route.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
   await ctx.addInitScript(() => {
@@ -49,9 +52,14 @@ async function screenshot(page, name) { if (output) await page.screenshot({ path
       const off = await soundState();
       check('Sound opt-out suspends audio and synchronizes both controls', off.contexts.length === 1 && off.contexts[0] !== 'running' && off.pressed.every(value => value === 'false'), off);
 
-      await page.locator('#ask-toggle').click(); await page.locator('#section-menu summary').click();
-      await page.waitForFunction(() => document.querySelector('#ask').hidden);
-      check('Explore closes Ask while keeping navigation open', await page.evaluate(() => document.querySelector('#ask').hidden && document.querySelector('#section-menu').open), {});
+      await page.locator('#ask-toggle').click();
+      check('Ask makes the compact dock inert so it cannot overlap the question panel', await page.evaluate(() => {
+        const dock = document.querySelector('#experience-controls');
+        return !document.querySelector('#ask').hidden && dock.inert && getComputedStyle(dock).opacity === '0';
+      }), {});
+      await page.keyboard.press('Escape');
+      await page.locator('#section-menu summary').click();
+      check('Explore opens after Ask closes and the compact dock is restored', await page.evaluate(() => document.querySelector('#ask').hidden && document.querySelector('#section-menu').open && !document.querySelector('#experience-controls').inert), {});
       await page.locator('#ask-toggle').click();
       check('Ask closes Explore while keeping the question panel open', await page.evaluate(() => !document.querySelector('#ask').hidden && !document.querySelector('#section-menu').open), {});
       await page.keyboard.press('Escape');
@@ -143,7 +151,8 @@ async function screenshot(page, name) { if (output) await page.screenshot({ path
   } catch (error) { runtimeFailure = { name: error.name, message: error.message }; throw error; }
   finally {
     const browserVersion = browser.version(); await browser.close();
-    if (output) fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ timestamp: new Date().toISOString(), engine, browserVersion, completed: !runtimeFailure, runtimeFailure, results }, null, 2));
+    check('No uncaught JavaScript errors across all experience interactions', pageErrors.length === 0, pageErrors);
+    if (output) fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ timestamp: new Date().toISOString(), engine, browserVersion, completed: !runtimeFailure, runtimeFailure, results, pageErrors }, null, 2));
     const failures = results.filter(result => !result.passed);
     console.log(`${results.length - failures.length}/${results.length} checks passed.${runtimeFailure ? ' Suite incomplete.' : ''}`);
     if (failures.length) process.exitCode = 1;

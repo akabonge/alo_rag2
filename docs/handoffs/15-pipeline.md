@@ -1,0 +1,13 @@
+# Trusted deployment health and response-contract checks
+
+Owner: Codex. Branch: `codex/mobile-audio-release-safety`.
+
+The former shell smoke check could turn a redirect followed by a transport failure into a green result. `scripts/health/contracts.mjs` now rejects transport failures, unresolved or foreign redirects, access barriers, oversized bodies, wrong MIME types, invalid JSON contracts and missing page markers. Uptime checks the 3D, text and ProofMode pages, versioned browser assets, guestbook, one sourced Ask response and the linked demos. It makes exactly one Ask request per scheduled/manual run and reports when a cache means the provider was not rechecked.
+
+Deployment validation now runs from `.github/workflows/deployment-health.yml` through `workflow_run` after `Portfolio quality` completes. GitHub evaluates that workflow from the trusted default branch. A pull request cannot replace the checker and then receive the optional Vercel bypass secret. The job has read-only contents and deployments permissions, checks out `main` without persisted Git credentials, and uses `scripts/health/wait-deployment.mjs` to resolve the successful Vercel deployment for the exact tested SHA. The existing event contract then rejects a foreign repository, actor, environment, commit, project or account scope before any deployment request.
+
+Preview checks use the immutable verified URL and fail closed if preview protection cannot be passed. A bypass credential, if later configured, is sent only to that exact validated project origin and is never forwarded across a redirect. Production checks bind `index.html`, `page.html`, `main.js`, `narration.js`, `boot.js`, `ask.js`, `guestbook.js`, `content.js`, `media.js`, `network.js`, `atmosphere.js` and the SVG favicon to SHA-pinned repository source before probing the public alias. Deployment checks submit malformed Ask JSON and only read the guestbook, so they cause no model call or public write.
+
+The complete Node suite passes 106 tests with two real-Redis suites skipped locally because no loopback Redis port is configured. CI supplies disposable Redis and requires both Lua suites. The focused health suite covers trusted deployment resolution, event and URL validation, redirect failures, protected previews, credential isolation, deadline/body bounds, API contracts, exactly one uptime Ask call, production asset mismatch, CLI false-green behavior and late/popup JavaScript errors.
+
+The workflow detects failures; it does not roll back a deployment. The first merged default-branch run is the operational proof of the new `workflow_run` path. Protected preview validation remains expected to fail until `VERCEL_AUTOMATION_BYPASS_SECRET` is configured in GitHub, while production checks need no bypass.

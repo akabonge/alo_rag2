@@ -94,7 +94,8 @@ sequenceDiagram
         B->>B: Check session answer cache
         opt Browser cache miss
             B->>A: POST question
-            A->>A: Validate, rate limit, check instance cache
+            A->>A: Validate and consume shared Redis attempt
+            A->>A: Check instance cache
             opt Server cache miss
                 A->>R: Retrieve up to 3 chunks
                 R-->>A: Grounded sources
@@ -119,11 +120,13 @@ The default model identifier in code is `claude-haiku-4-5-20251001`, overridable
 | --- | --- | --- |
 | Browser answer cache | Normalized question keys in `sessionStorage` | Browser tab session; no explicit TTL |
 | Server answer cache | Up to 300 answers, 24-hour TTL | Warm function instance only |
-| Ask request limit | 8 requests per IP per minute | In-memory, per instance, best effort |
+| Ask request limit | 8 valid attempts per IP in a rolling minute | Shared Redis state across function instances |
 | Input bound | Question trimmed to 300 characters | Ask API |
 | Server response | `Cache-Control: no-store` | HTTP caching disabled |
 
-If the endpoint fails, the browser can use the optional `window.claude` sampling integration when that host supplies it. Otherwise the extracted local answer remains. Ordinary website visitors do not need that integration. No-match server requests return a refusal without calling Claude. The sequence diagram shows the successful model path; network or provider failures take the fallback path.
+The Ask limit uses one atomic Redis sorted-set script and Redis server time. Valid attempts consume quota before cache lookup, retrieval or model access, so warm answers and provider failures cannot bypass the shared ceiling. Invalid methods and malformed bodies do not consume quota. The response includes `Retry-After` on 429. Missing or malformed Redis configuration fails closed with 503; the browser keeps its extracted local answer available.
+
+If the endpoint fails, the browser can use the optional `window.claude` sampling integration when that host supplies it. Otherwise the extracted local answer remains. Ordinary website visitors do not need that integration. No-match server requests return a refusal without calling Claude, after the attempt has been counted. The sequence diagram shows the successful model path; network or provider failures take the fallback path.
 
 ## 4. Guestbook: a message becomes a star
 
@@ -173,7 +176,7 @@ Versions below are the repository's declared versions, not claims about the late
 | Python 3 | Standard library only | Wraps the main HTML template |
 | Vercel | `vercel.json` | Static serving and serverless functions; optional analytics script |
 | Anthropic Messages API | Native HTTPS fetch | Generates cited answers from retrieved portfolio sources |
-| Upstash Redis REST API | Native HTTPS fetch | Shared guestbook notes and submission counters |
+| Upstash Redis REST API | Native HTTPS fetch | Shared guestbook state and Ask attempt counters |
 | Web Audio API | Browser | Synthesized ambient sound and effects |
 | HTML media APIs | Browser | Recorded MP3 greetings/tours and MP4 video |
 | Web Speech APIs | Browser-dependent | Speech synthesis and supported voice input |
@@ -205,12 +208,12 @@ flowchart LR
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Authenticates model requests | Server-generated answers |
 | `ANTHROPIC_MODEL` | Overrides the model identifier | Optional |
-| `UPSTASH_REDIS_REST_URL` | Redis REST endpoint | Shared guestbook |
-| `UPSTASH_REDIS_REST_TOKEN` | Redis REST credential | Shared guestbook |
+| `UPSTASH_REDIS_REST_URL` | Redis REST endpoint | Shared guestbook and Ask limit |
+| `UPSTASH_REDIS_REST_TOKEN` | Redis REST credential | Shared guestbook and Ask limit |
 | `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Supported alternative Redis names; take precedence | Alternative to Upstash-named variables |
 | `GUESTBOOK_ADMIN_KEY` | Authorizes note deletion | Optional moderation |
 
-Secrets belong in the server environment, never in `src/`. Questions travel to the Ask function and, on an uncached model request, to Anthropic with selected public portfolio facts. Guestbook submissions travel to the function and Redis. IP-derived Redis counter keys are used for submission limiting.
+Secrets belong in the server environment, never in `src/`. Questions travel to the Ask function and, on an uncached model request, to Anthropic with selected public portfolio facts. Guestbook submissions travel to the function and Redis. HMAC-derived Redis keys use the existing Redis token as their private key material, so raw visitor IPs are not stored in Redis.
 
 The output directory is `src`. Ask has a configured maximum duration of 20 seconds and guestbook 10 seconds; internal upstream/storage deadlines are 12 and 7 seconds respectively. `package-lock.json` records dependency resolution, and the quality workflow tests with Node 24. The deployment Node engine is not pinned in the manifest. Domain, DNS, actual environment values, analytics enablement and deployment success are hosting-account state, not established by these files.
 
@@ -218,6 +221,6 @@ The output directory is `src`. Ask has a configured maximum duration of 20 secon
 
 The site can deliver its static content independently of model and guestbook availability. Its browser still depends on external module/font delivery for the full visual experience. The text page provides a simpler reading path.
 
-The current implementation has no distributed answer cache, durable Ask rate limiter or model citation verifier. A scheduled GitHub Actions smoke check (`.github/workflows/uptime.yml`) verifies the live pages, both APIs and the demos every 6 hours. The separate quality workflow runs generated-page, mocked API/client and browser regression checks on pull requests and main. Shared abuse controls, idempotent submission retries and measured performance work are tracked in [QUALITY-PLAN.md](QUALITY-PLAN.md).
+The current implementation has no distributed answer cache or model citation verifier. Its shared Ask limiter bounds attempts across healthy Redis-backed function instances, but it is an abuse and cost guard rather than identity verification; proxies, shared networks and IP rotation remain limits. A scheduled GitHub Actions smoke check (`.github/workflows/uptime.yml`) verifies the live pages, both APIs and the demos every 6 hours. The separate quality workflow runs generated-page, mocked API/client, actual disposable-Redis and browser regression checks on pull requests and main. A trusted-default-branch workflow resolves the successful Vercel deployment for the tested commit and validates it without a model call or guestbook write.
 
-Keep the facts and generated pages synchronized, review model/provider usage in their dashboards, and avoid treating per-instance limits as a global cost ceiling. This architecture deliberately keeps public content in Git and credentials in the server runtime.
+Keep the facts and generated pages synchronized and review model/provider usage in their dashboards. The shared limit is a bounded operational control, not a guaranteed global cost ceiling during Redis outage or infrastructure failure; the API fails closed when the limiter is unavailable. This architecture deliberately keeps public content in Git and credentials in the server runtime.

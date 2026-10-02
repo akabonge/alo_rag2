@@ -13,7 +13,7 @@ This repository is the production 3D portfolio. Read `docs/OFFICE.md` for the te
 
 ## Repository facts
 
-- `src/content.js` contains public portfolio facts and endpoints. Alo works at Flatter, Inc.; do not reintroduce open-to-roles wording.
+- `src/content.js` contains public portfolio facts and endpoints. Current employment wording is "Currently working at Flatter, Inc." Do not infer or publish a job-search or availability status from employment alone.
 - `src/page.html` is the main template. Regenerate `src/index.html` after editing it. Generate `src/text.html` after content changes. Preserve the favicon and ProofMode links.
 - `src/ask.js` is shared by browser and server. Preserve its query-free `./content.js` import, profile aliases and grounding filter.
 - `api/ask.js` calls Anthropic; `api/guestbook.js` uses Redis. Keep secrets server-side. Do not publish unsupported product/security claims.

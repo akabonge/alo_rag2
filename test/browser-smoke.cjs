@@ -8,6 +8,7 @@ const engine = process.env.PLAYWRIGHT_BROWSER || 'chromium';
 if (!['chromium', 'firefox', 'webkit'].includes(engine)) throw new Error('PLAYWRIGHT_BROWSER must be chromium, firefox or webkit.');
 const fs = require('node:fs');
 const path = require('node:path');
+const { trackContextErrors } = require('../scripts/health/browser-errors.cjs');
 const base = process.argv[2] || 'http://127.0.0.1:5174';
 const output = process.argv[3] ? path.resolve(process.argv[3]) : null;
 const mirrorRoot = process.env.BROWSER_CDN_DIR ? fs.realpathSync(path.resolve(process.env.BROWSER_CDN_DIR)) : null;
@@ -17,6 +18,7 @@ if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname)) {
 }
 if (output) fs.mkdirSync(output, { recursive: true });
 const results = [];
+const pageErrors = [];
 const limitations = engine === 'firefox' ? ['Playwright Firefox does not support isMobile; phone sizes use viewport and touch emulation only.'] : [];
 if (mirrorRoot) limitations.push('Pinned local dependency mirror; this run does not measure production CDN behavior.');
 limitations.forEach(message => console.log(`COVERAGE NOTE: ${message}`));
@@ -27,6 +29,7 @@ let runtimeFailure = null;
 async function context(options = {}) {
   if (engine === 'firefox') { options = { ...options }; delete options.isMobile; }
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', ...options });
+  trackContextErrors(ctx, pageErrors);
   if (mirrorRoot) await ctx.route('https://cdn.jsdelivr.net/npm/**', async route => {
     const url = new URL(route.request().url());
     const file = (await mirrorModule).mirroredFile(mirrorRoot, url.href);
@@ -135,6 +138,20 @@ async function submit(page, question) { await page.locator('#ask-input').fill(qu
         }
         await screenshot(page, `welcome-controls-${width}`); await ctx.close();
       }
+    }
+    {
+      const { ctx, page } = await context({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }); await load(page);
+      for (const selector of ['#hero .cta-row', '#projects #proj-list li:last-child', '#contact .resume-link']) {
+        await page.locator(selector).evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+        await page.waitForTimeout(100);
+        const position = await page.locator(selector).evaluate(el => {
+          const r = el.getBoundingClientRect(), dock = document.querySelector('#experience-controls').getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 20));
+          return { top: r.top, bottom: r.bottom, dockTop: dock.top, reachable: (hit === el || el.contains(hit)) && r.top >= 0 && r.bottom <= dock.top + 1 };
+        });
+        check(`Phone reading surface ${selector} scrolls fully above the fixed controls`, position.reachable, position);
+      }
+      await ctx.close();
     }
     {
       const { ctx, page } = await context(); await page.route('**/npm/three@**', route => route.abort('failed')); await page.goto(base, { waitUntil: 'domcontentloaded' });
@@ -247,7 +264,8 @@ async function submit(page, question) { await page.locator('#ask-input').fill(qu
     throw error;
   } finally {
     await browser.close();
-    if (output) fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ timestamp: new Date().toISOString(), base, engine, browserVersion: browser.version(), limitations, completed: !runtimeFailure, runtimeFailure, results }, null, 2));
+    check('No uncaught JavaScript errors across all page interactions', pageErrors.length === 0, pageErrors);
+    if (output) fs.writeFileSync(path.join(output, 'results.json'), JSON.stringify({ timestamp: new Date().toISOString(), base, engine, browserVersion: browser.version(), limitations, completed: !runtimeFailure, runtimeFailure, results, pageErrors }, null, 2));
     const failures = results.filter(result => !result.passed);
     console.log(`${results.length - failures.length}/${results.length} checks passed.${runtimeFailure ? ' Suite incomplete: browser/runtime operation failed.' : ''}`);
     if (failures.length) process.exitCode = 1;

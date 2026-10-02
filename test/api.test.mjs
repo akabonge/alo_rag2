@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCorpus, makeIndex } from '../src/ask.js';
+import { mockAskFetch } from './ask-rate-limit-fixture.mjs';
 
 // All requests are in-process and fetch is mocked. Never contact production services.
 let moduleId = 0;
@@ -29,7 +30,9 @@ function environment(t, vars) {
     }
   });
 }
-const askEnvironment = (t) => environment(t, { ANTHROPIC_API_KEY: 'mock-only' });
+const askEnvironment = (t, vars = {}) => environment(t, {
+  ANTHROPIC_API_KEY: 'mock-only', KV_REST_API_URL: 'https://redis.invalid', KV_REST_API_TOKEN: 'mock-only', ...vars,
+});
 const guestEnvironment = (t) => environment(t, {
   KV_REST_API_URL: 'https://redis.invalid', KV_REST_API_TOKEN: 'mock-only', GUESTBOOK_ADMIN_KEY: 'mock-admin',
 });
@@ -60,8 +63,8 @@ test('Ask rejects malformed JSON and invalid question types before network acces
 });
 
 test('Ask returns off-topic fallback without provider access and detects missing configuration', async (t) => {
-  environment(t, { ANTHROPIC_API_KEY: undefined });
-  t.mock.method(globalThis, 'fetch', noNetwork);
+  askEnvironment(t, { ANTHROPIC_API_KEY: undefined });
+  mockAskFetch(t, noNetwork);
   const ask = await fresh('ask');
   const offTopic = await request(ask, { question: 'White House' });
   assert.equal(offTopic.statusCode, 200);
@@ -71,7 +74,7 @@ test('Ask returns off-topic fallback without provider access and detects missing
 
 test('Ask returns a grounded answer and reuses the successful cached response', async (t) => {
   askEnvironment(t);
-  const fetch = t.mock.method(globalThis, 'fetch', async (_url, options) => {
+  const fetch = mockAskFetch(t, async (_url, options) => {
     assert.ok(options.signal instanceof AbortSignal);
     assert.match(JSON.parse(options.body).messages[0].content, /Sources:/);
     return json({ content: [{ type: 'text', text: 'Alo works at Flatter. [1]' }] });
@@ -83,20 +86,21 @@ test('Ask returns a grounded answer and reuses the successful cached response', 
   assert.equal(first.body.answer, 'Alo works at Flatter. [1]');
   assert.ok(first.body.sources.length > 0);
   assert.equal(cached.body.cached, true);
-  assert.equal(fetch.mock.callCount(), 1);
+  assert.equal(fetch.providerCalls.length, 1);
+  assert.equal(fetch.redisCalls.length, 2, 'Cached replies still consume shared attempts');
 });
 
 test('Ask rejects empty or malformed provider output and never caches the failed reply', async (t) => {
   askEnvironment(t);
   const ask = await fresh('ask');
   const payloads = [null, { content: [] }, { content: {} }, { content: [{ type: 'text', text: ' ' }] }, { content: [{ type: 'text', text: 7 }] }];
-  const fetch = t.mock.method(globalThis, 'fetch', async () => json(payloads.shift()));
+  const fetch = mockAskFetch(t, async () => json(payloads.shift()));
   for (let i = 0; i < 5; i++) {
     const res = await request(ask, { question: 'Flatter' });
     assert.equal(res.statusCode, 502);
     assert.equal(typeof res.body.error, 'string');
   }
-  assert.equal(fetch.mock.callCount(), 5);
+  assert.equal(fetch.providerCalls.length, 5);
 });
 
 test('Ask converts provider HTTP, JSON and network failures to controlled responses', async (t) => {
@@ -107,7 +111,7 @@ test('Ask converts provider HTTP, JSON and network failures to controlled respon
     async () => ({ ok: true, json: async () => { throw new SyntaxError('Malformed upstream body'); } }),
     async () => { throw new Error('Mock private provider diagnostic'); },
   ];
-  t.mock.method(globalThis, 'fetch', (...args) => failures.shift()(...args));
+  mockAskFetch(t, (...args) => failures.shift()(...args));
   for (let i = 0; i < 3; i++) {
     const res = await request(ask, { question: 'Flatter' });
     assert.equal(res.statusCode, 502);
@@ -119,18 +123,23 @@ test('Ask aborts a hung provider within its serverless duration', async (t) => {
   askEnvironment(t);
   const ask = await fresh('ask');
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  t.mock.method(globalThis, 'fetch', waitForAbort);
+  const calls = mockAskFetch(t, waitForAbort);
   const pending = request(ask, { question: 'Flatter' });
+  await new Promise(setImmediate);
+  assert.equal(calls.providerCalls.length, 1);
   t.mock.timers.tick(12_000);
   assert.equal((await pending).statusCode, 504);
 });
 
 test('Ask limits repeated requests and allows the client again after the window', async (t) => {
+  askEnvironment(t);
   const ask = await fresh('ask');
   t.mock.timers.enable({ apis: ['Date'], now: 100_000 });
-  t.mock.method(globalThis, 'fetch', noNetwork);
+  mockAskFetch(t, noNetwork);
   for (let i = 0; i < 8; i++) assert.equal((await request(ask, { question: 'White House' })).statusCode, 200);
-  assert.equal((await request(ask, { question: 'White House' })).statusCode, 429);
+  const limited = await request(ask, { question: 'White House' });
+  assert.equal(limited.statusCode, 429);
+  assert.equal(limited.headers['Retry-After'], '60');
   t.mock.timers.tick(60_000);
   assert.equal((await request(ask, { question: 'White House' })).statusCode, 200);
 });

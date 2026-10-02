@@ -17,11 +17,12 @@ import { PROFILE, ORIGIN, DEST, TIMELINE, EXPERIENCE, PROJECTS, DEMOS, SKILLS, S
 import { LAND_N, decodeLand, UGANDA_DOTS } from './landmask.js?v=16';
 import { US_DOTS, US_PINS } from './usmap.js?v=16';
 import { ugandaFlag, usFlag } from './flags.js?v=16';
-import { buildCorpus, makeIndex, extract, ragPrompt } from './ask.js?v=16';
+import { buildCorpus, makeIndex, extract, ragPrompt } from './ask.js?v=17';
 import { fetchJSON } from './network.js?v=17';
 import { localAtmosphere, placeLabels } from './atmosphere.js?v=18';
 import { createImageLoader, createStationMedia } from './media.js?v=19';
 import { createSubmissionTracker } from './guestbook.js?v=20';
+import { createNarrationPlayer, setAudioSessionType } from './narration.js?v=22';
 
 /* ------------------------------------------------------------------ */
 /* Environment                                                         */
@@ -69,14 +70,6 @@ $('#drawer-body').addEventListener('error', (event) => {
     image.dataset.photo = 'portrait'; image.alt = IMAGES.portrait.alt; image.src = IMAGES.portrait.src;
   } else image.closest('figure')?.remove();
 }, true);
-// Lite offer: a dismissible bar pointing weak/slow devices to the fast text version (stays hidden once dismissed).
-function offerLite(why) {
-  const el = $('#lite-offer'); if (!el || !el.hidden || store.get('lite-dismissed') === '1') return;
-  el.querySelector('span').textContent = why === 'slow' ? 'Running slowly on this device?' : 'On a slow connection or low-memory device?';
-  el.hidden = false;
-  el.querySelector('button').addEventListener('click', () => { el.hidden = true; store.set('lite-dismissed', '1'); }, { once: true });
-}
-if (navigator.connection?.saveData || (navigator.deviceMemory && navigator.deviceMemory <= 2)) setTimeout(() => offerLite('light'), 2500);
 const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), Math.min(8000, Math.max(3200, msg.length * 55))); };
 
 /* ------------------------------------------------------------------ */
@@ -267,12 +260,15 @@ function openAsk() {
   stopVoice();
   $('#section-menu').open = false;
   document.querySelectorAll('dialog[open]').forEach((el) => el.dispatchEvent(new Event('dismiss')));
+  $('#experience-controls').inert = true;
   askPanel.hidden = false; askBtn.setAttribute('aria-expanded', 'true'); askInput.focus({ preventScroll: true });
 }
 function closeAsk({ restoreFocus = true } = {}) {
   askCtl?.abort(); askSequence++; askOut.removeAttribute('aria-busy');
   if (voiceOn()) stopVoice();
-  askPanel.hidden = true; askBtn.setAttribute('aria-expanded', 'false'); if (restoreFocus) askBtn.focus({ preventScroll: true });
+  askPanel.hidden = true; askBtn.setAttribute('aria-expanded', 'false');
+  $('#experience-controls').inert = false;
+  if (restoreFocus) askBtn.focus({ preventScroll: true });
 }
 $('#section-menu').addEventListener('toggle', () => {
   if ($('#section-menu').open) { if (!askPanel.hidden) closeAsk({ restoreFocus: false }); endTour(); stopFlight?.(); onLeaveSkills?.(); }
@@ -294,7 +290,7 @@ async function generate(q, r, el, srcEl, signal, current) {
   if (ASK_ENDPOINT) {
     try {
       srcEl.textContent = 'Writing an answer…';
-      const ck = 'ask:' + q.toLowerCase().replace(/\s+/g, ' ').trim();
+      const ck = 'ask:v21:' + q.toLowerCase().replace(/\s+/g, ' ').trim();
       let j = null; try { j = JSON.parse(sessionStorage.getItem(ck) || 'null'); } catch { /* storage blocked */ }
       const valid = (value) => typeof value?.answer === 'string' && value.answer.trim() && Array.isArray(value.sources) && value.sources.every((s) => typeof s === 'string');
       if (!valid(j)) j = null;
@@ -331,7 +327,7 @@ function answer(q) {
   askCtl?.abort(); askCtl = new AbortController();
   const signal = askCtl.signal, sequence = ++askSequence;
   const current = () => sequence === askSequence && !signal.aborted;
-  if (voiceOn()) synth?.cancel();
+  if (voiceOn()) stopVoice();
   const r = search(q, 4);
   askOut.removeAttribute('aria-busy');
   if (!r.length) {
@@ -372,7 +368,7 @@ const AMADINDA = Array.from({ length: 10 }, (_, k) => 196 * Math.pow(2, k / 5));
 const OKUNAGA = [0, 2, 4, 2, 1, 3, 0, 2, 4, 3, 1, 2], OKWAWULA = [5, 7, 6, 8, 5, 6, 7, 9, 6, 8, 7, 5];
 const DRUM_LOW = new Set([0, 7]), DRUM_MID = new Set([3, 5, 10]), DRUM_HIGH = new Set([1, 2, 4, 6, 8, 9, 11]);
 const audio = {
-  ctx: null, on: false, chord: -1, afro: 0, bellRate: 1, track: null, ducked: false, intent: 0,
+  ctx: null, on: false, blocked: false, starting: false, chord: -1, afro: 0, bellRate: 1, track: null, ducked: false, intent: 0,
   init() {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const master = ctx.createGain(); master.gain.value = 0;
@@ -393,6 +389,9 @@ const audio = {
     const afroLp = ctx.createBiquadFilter(); afroLp.type = 'lowpass'; afroLp.frequency.value = 2600;
     const afroBus = ctx.createGain(); afroBus.gain.value = 0; afroBus.connect(afroLp); afroLp.connect(dry); afroLp.connect(verb);
     Object.assign(this, { ctx, master, filter, padBus, guitarBus, bellBus, afroBus, dry, verb });
+    ctx.addEventListener('statechange', () => {
+      if (this.on && !document.hidden) { this.blocked = ctx.state !== 'running'; syncSound(); }
+    });
     this.next = ctx.currentTime + 0.2; this.step = 0; this.nextBell = ctx.currentTime + 4; this.pnext = ctx.currentTime + 0.3; this.pstep = 0;
     this.timer = setInterval(() => this.schedule(), 60);
     if (SOUNDTRACK) {
@@ -489,16 +488,39 @@ const audio = {
       this.next += 0.24; this.step++;
     }
   },
+  resume() {
+    const intent = ++this.intent;
+    this.starting = true; this.blocked = false;
+    clearTimeout(this.suspendTimer); clearTimeout(this.resumeTimer);
+    const t = this.ctx.currentTime; this.next = t + 0.2; this.pnext = t + 0.25; this.nextBell = t + 2;
+    const finish = (failed = false) => {
+      if (intent !== this.intent || !this.on || document.hidden) {
+        if (!this.on || document.hidden) { this.track?.pause(); this.ctx.suspend().catch(() => {}); }
+        return;
+      }
+      clearTimeout(this.resumeTimer); this.starting = false; this.blocked = failed || this.ctx.state !== 'running';
+      this.level(); syncSound();
+    };
+    this.resumeTimer = setTimeout(() => finish(true), 5000);
+    // Both calls remain in the initiating gesture; neither waits for the other.
+    try {
+      const contextPlay = this.ctx.resume(), trackPlay = this.track?.play();
+      Promise.all([contextPlay, trackPlay]).then(() => finish(), () => finish(true));
+    } catch { finish(true); }
+    this.level(); syncSound();
+  },
   toggle() {
     if (!this.ctx) this.init();
+    if (this.on && !this.starting && (this.blocked || this.ctx.state !== 'running')) {
+      setAudioSessionType('playback'); this.resume(); return true;
+    }
     this.on = !this.on;
-    const intent = ++this.intent;
-    clearTimeout(this.suspendTimer);
-    const t = this.ctx.currentTime; this.next = t + 0.2; this.pnext = t + 0.25; this.nextBell = t + 2;
-    if (this.on) this.ctx.resume().then(() => { if (intent === this.intent && this.on && !document.hidden && this.ctx.state !== 'running') { this.on = false; syncSound(); } }).catch(() => { if (intent === this.intent && !document.hidden) { this.on = false; syncSound(); } });
-    this.level(this.on ? 0.9 : 0.12);
-    if (this.track) { if (this.on) this.track.play().catch(() => {}); else this.track.pause(); }
-    if (!this.on) this.suspendTimer = setTimeout(() => { if (!this.on) this.ctx.suspend().catch(() => {}); }, 700);
+    if (this.on) { setAudioSessionType('playback'); this.resume(); }
+    else {
+      ++this.intent; this.starting = false; this.blocked = false;
+      clearTimeout(this.resumeTimer); clearTimeout(this.suspendTimer); this.track?.pause(); this.level(0.12);
+      this.suspendTimer = setTimeout(() => { if (!this.on) this.ctx.suspend().catch(() => {}); }, 700);
+    }
     return this.on;
   },
   level(fade = 0.3) {
@@ -539,9 +561,11 @@ const audio = {
   },
 };
 function syncSound() {
+  const playing = audio.on && !audio.blocked && !document.hidden && audio.ctx?.state === 'running';
+  const label = audio.starting ? 'Starting score…' : audio.on && !playing ? 'Resume score' : playing ? 'Mute original ambient score' : 'Play original ambient score';
   document.querySelectorAll('[data-sound]').forEach((button) => {
-    button.setAttribute('aria-pressed', String(audio.on));
-    button.setAttribute('aria-label', audio.on ? 'Mute original ambient score' : 'Play original ambient score');
+    button.setAttribute('aria-pressed', String(playing)); button.setAttribute('aria-label', label); button.title = label;
+    const text = button.querySelector?.('[data-sound-label]'); if (text) text.textContent = audio.starting ? 'Starting…' : audio.on && !playing ? 'Resume sound' : 'Sound';
   });
 }
 document.querySelectorAll('[data-sound]').forEach((button) => button.addEventListener('click', () => {
@@ -549,12 +573,10 @@ document.querySelectorAll('[data-sound]').forEach((button) => button.addEventLis
 }));
 document.addEventListener('visibilitychange', () => {
   if (!audio.ctx) return;
-  const intent = ++audio.intent;
-  clearTimeout(audio.suspendTimer);
-  if (document.hidden) { audio.track?.pause(); audio.ctx.suspend().catch(() => {}); }
+  ++audio.intent; clearTimeout(audio.suspendTimer); clearTimeout(audio.resumeTimer);
+  if (document.hidden) { audio.starting = false; audio.track?.pause(); audio.ctx.suspend().catch(() => {}); syncSound(); }
   else if (audio.on) {
-    audio.next = audio.pnext = audio.ctx.currentTime + 0.2; audio.nextBell = audio.ctx.currentTime + 2;
-    audio.ctx.resume().then(() => { if (intent !== audio.intent || !audio.on || document.hidden) return; audio.level(); audio.track?.play().catch(() => {}); }).catch(() => { if (intent === audio.intent && !document.hidden) { audio.on = false; syncSound(); } });
+    audio.resume();
   }
 });
 
@@ -576,11 +598,24 @@ tickClock(); setInterval(tickClock, 1000);
 /* Voice: speak (browser speech synthesis, free) and listen            */
 /* ------------------------------------------------------------------ */
 const synth = window.speechSynthesis;
-let activeUtterance = null, voiceClip = null, voiceSequence = 0;
-function stopVoice() {
-  voiceSequence++; voiceClip?.pause(); voiceClip = null; activeUtterance = null;
-  synth?.cancel(); audio.duck(false);
+let activeUtterance = null, voiceSequence = 0, speechStartTimer = 0, voiceRetryAction = null;
+const narration = createNarrationPlayer({ onState: ({ status }) => audio.duck(status === 'playing') });
+function voiceFeedback(message = '', retry = null, label = 'Retry audio') {
+  const status = $('#voice-status'), button = $('#voice-retry'), panel = $('#voice-feedback');
+  voiceRetryAction = retry;
+  if (status) status.textContent = message;
+  if (button) { button.hidden = !retry; button.textContent = label; }
+  if (panel) {
+    if (message) { if (!askPanel.hidden) askPanel.append(panel); else document.body.append(panel); }
+    panel.hidden = !message;
+  }
 }
+function stopVoice() {
+  voiceSequence++; clearTimeout(speechStartTimer); activeUtterance = null;
+  narration.stop(); synth?.cancel(); audio.duck(false); voiceFeedback();
+}
+$('#voice-retry')?.addEventListener('click', () => { setAudioSessionType('playback'); voiceRetryAction?.(); });
+$('#voice-dismiss')?.addEventListener('click', stopVoice);
 let voices = [];
 const loadVoices = () => { try { voices = synth?.getVoices() || []; } catch { voices = []; } };
 loadVoices(); try { synth?.addEventListener?.('voiceschanged', loadVoices); } catch { /* old browser */ }
@@ -588,51 +623,67 @@ function pickVoice() {
   const en = voices.filter((v) => /^en/i.test(v.lang));
   return en.find((v) => /natural|neural|online|google us|samantha|aria|jenny|guy/i.test(v.name)) || en.find((v) => /en-US/i.test(v.lang)) || en[0] || null;
 }
-function speak(text, { rate = 1, pitch = 1 } = {}) {
-  if (!synth || !text) return;
+function speak(text, { rate = 1, pitch = 1, onState, onEnd, feedback = true } = {}) {
+  if (!text) return;
+  stopVoice();
+  const token = voiceSequence, options = { rate, pitch, onState, onEnd, feedback };
+  const valid = () => token === voiceSequence;
+  const report = (status) => {
+    onState?.({ status });
+    if (!feedback) return;
+    if (status === 'playing') voiceFeedback('Reading aloud.');
+    else if (status === 'loading') voiceFeedback('Starting voice…');
+    else if (status === 'ended') voiceFeedback();
+    else voiceFeedback('Voice did not start. Tap Read aloud to try again; the text stays available.', () => speak(text, options), 'Read aloud');
+  };
+  if (!synth) { report('error'); return; }
   try {
-    stopVoice();
     const u = new SpeechSynthesisUtterance(text.slice(0, 600)); const v = pickVoice(); if (v) u.voice = v;
-    activeUtterance = u;
-    u.rate = rate; u.pitch = pitch; u.volume = 1;
-    audio.duck(true);
-    u.onend = u.onerror = () => { if (activeUtterance === u) { activeUtterance = null; audio.duck(false); } };
+    activeUtterance = u; u.rate = rate; u.pitch = pitch; u.volume = 1;
+    report('loading');
+    const failed = () => { if (!valid() || activeUtterance !== u) return; clearTimeout(speechStartTimer); activeUtterance = null; audio.duck(false); report('blocked'); };
+    u.onstart = () => { if (!valid() || activeUtterance !== u) return; clearTimeout(speechStartTimer); audio.duck(true); report('playing'); };
+    u.onend = () => { if (!valid() || activeUtterance !== u) return; clearTimeout(speechStartTimer); activeUtterance = null; audio.duck(false); report('ended'); onEnd?.(); };
+    u.onerror = failed;
+    speechStartTimer = setTimeout(() => { if (!valid() || activeUtterance !== u) return; failed(); synth.cancel(); }, 5000);
     synth.speak(u);
-  } catch { activeUtterance = null; audio.duck(false); }
+  } catch { if (valid()) { clearTimeout(speechStartTimer); activeUtterance = null; audio.duck(false); report('error'); } }
 }
 const voiceOn = () => $('#ask-voice').checked;
 try { $('#ask-voice').checked = store.get('aialo3d-voice') === '1'; } catch { /* storage */ }
-$('#ask-voice').addEventListener('change', (e) => { store.set('aialo3d-voice', e.target.checked ? '1' : '0'); if (!e.target.checked) stopVoice(); });
+$('#ask-voice').addEventListener('change', (e) => {
+  store.set('aialo3d-voice', e.target.checked ? '1' : '0');
+  if (!e.target.checked) stopVoice(); else setAudioSessionType('playback');
+});
 if (!synth) $('#ask-voice').closest('label').hidden = true;
 
-// Luganda greeting: plays assets/oli-otya.mp3 (record your own voice!) or falls back to a phonetic read.
+// Every recording shares one element. The first play stays inside the user's tap.
+function playSequence(list, fallback) {
+  endTour(); stopVoice(); setAudioSessionType('playback');
+  const token = voiceSequence; let index = 0;
+  const next = () => {
+    if (token !== voiceSequence || document.hidden) return;
+    if (index >= list.length) { audio.duck(false); voiceFeedback(); return; }
+    narration.play(`${list[index++]}?v=22`, {
+      onState: ({ status }) => {
+        if (token !== voiceSequence) return;
+        if (status === 'loading') voiceFeedback('Loading Alo’s recording…');
+        else if (status === 'playing') voiceFeedback('Playing Alo’s recording.');
+        else if (status === 'blocked' || status === 'paused') voiceFeedback('Audio is paused. Tap Continue audio.', () => narration.retry(), 'Continue audio');
+        else if (status === 'error') voiceFeedback(`Recording unavailable. ${fallback || ''}`, () => narration.retry({ restart: true }), 'Retry recording');
+      },
+      onEnd: next,
+    });
+  };
+  next();
+}
+function playVoice(src, fallback) { playSequence([src], fallback); }
 $('#greet-reply').addEventListener('click', () => {
   $('#oli-reply').hidden = false; $('#greet-reply').hidden = true;
-  playSequence(['assets/gyendi.mp3', 'assets/tukusanyukidde.mp3', 'assets/im-aloysious.mp3'], 'Jen-dee! I am fine.');
+  playSequence(['assets/gyendi.mp3', 'assets/tukusanyukidde.mp3', 'assets/im-aloysious.mp3'], 'Gyendi! I am fine. Welcome; I’m Aloysious.');
 });
-// My own voice: assets/oli-otya.mp3 and assets/webale-kujja.mp3 (falls back to a phonetic read)
-function playVoice(src, fallback) {
-  endTour(); stopVoice();
-  const token = voiceSequence, clip = new Audio(src); voiceClip = clip;
-  const valid = () => token === voiceSequence && voiceClip === clip;
-  audio.duck(true);
-  clip.onended = () => { if (valid()) { voiceClip = null; audio.duck(false); } };
-  const fail = () => { if (valid()) { stopVoice(); speak(fallback, { rate: 0.85 }); } };
-  clip.onerror = fail; clip.play().catch(fail);
-}
-function playSequence(list, fallback, i = 0, token) {
-  if (i === 0) { endTour(); stopVoice(); token = voiceSequence; }
-  if (token !== voiceSequence) return;
-  if (i >= list.length) { voiceClip = null; audio.duck(false); return; }
-  const clip = new Audio(list[i]); voiceClip = clip;
-  const valid = () => token === voiceSequence && voiceClip === clip;
-  audio.duck(true);
-  clip.onended = () => setTimeout(() => { if (valid()) playSequence(list, fallback, i + 1, token); }, 260);
-  const fail = () => { if (valid()) { stopVoice(); if (i === 0) speak(fallback, { rate: 0.9 }); } };
-  clip.onerror = fail; clip.play().catch(fail);
-}
-$('#hear-greet').addEventListener('click', () => playVoice('assets/oli-otya.mp3', 'Oh-lee, oh-chah?'));
-$('#hear-webale').addEventListener('click', () => playVoice('assets/webale-kujja.mp3', 'Weh-bah-leh koo-jah!'));
+$('#hear-greet').addEventListener('click', () => playVoice('assets/oli-otya.mp3', 'Oli otya? How are you?'));
+$('#hear-webale').addEventListener('click', () => playVoice('assets/webale-kujja.mp3', 'Webale kujja! Thank you for coming.'));
 
 // Voice questions (Chrome, Edge, Safari). Hidden where the browser has no speech recognition.
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -646,9 +697,10 @@ if (SR) {
       mic.classList.add('live'); mic.textContent = 'Listening…';
       rec.onresult = (ev) => { const t = [...ev.results].map((r) => r[0].transcript).join(' '); askInput.value = t; if (ev.results[ev.results.length - 1].isFinal) answer(t); };
       rec.onerror = (ev) => { toast(ev.error === 'not-allowed' ? 'Microphone access was blocked. You can type your question instead.' : 'Voice input stopped. You can type your question instead.'); };
-      rec.onend = () => { rec = null; mic.classList.remove('live'); mic.textContent = 'Speak'; };
+      rec.onend = () => { rec = null; mic.classList.remove('live'); mic.textContent = 'Speak'; setAudioSessionType(audio.on || activeUtterance || narration.status === 'playing' ? 'playback' : 'auto'); };
+      setAudioSessionType('play-and-record');
       rec.start();
-    } catch { rec = null; mic.hidden = true; toast('Voice input is not available in this browser.'); }
+    } catch { rec = null; setAudioSessionType('auto'); mic.hidden = true; toast('Voice input is not available in this browser.'); }
   });
 }
 
@@ -673,58 +725,84 @@ document.querySelectorAll('.resume-link').forEach((a) => a.addEventListener('cli
 /* Guided tour (recruiter mode)                                     */
 /* ------------------------------------------------------------------ */
 const tourEl = $('#tour');
-let tourTimer = 0, touring = false, tourClip = null, tourRun = 0, tourMediaTimer = 0, tourArrivalTimer = 0, tourSettleTimer = 0;
+let tourTimer = 0, touring = false, tourRun = 0, tourSettleTimer = 0, tourStep = null, tourNext = null;
 const syncTour = () => document.querySelectorAll('[data-tour]').forEach((button) => button.setAttribute('aria-pressed', String(touring)));
 function endTour() {
   if (!touring) return; touring = false; tourRun++;
-  clearTimeout(tourTimer); clearTimeout(tourMediaTimer); clearTimeout(tourArrivalTimer); clearTimeout(tourSettleTimer);
-  stopVoice(); tourClip?.pause(); tourClip = null; audio.duck(false); syncTour();
-  tourEl.hidden = true; document.body.classList.remove('touring'); lenis?.start();
+  clearTimeout(tourTimer); clearTimeout(tourSettleTimer); tourStep = tourNext = null;
+  stopVoice(); syncTour(); tourEl.hidden = true; document.body.classList.remove('touring'); lenis?.start();
 }
 function startTour() {
   if (touring) return; stopFlight?.(); closeDrawer(); if (!askPanel.hidden) closeAsk();
   stopVoice();
+  if ($('#tour-voice').checked) setAudioSessionType('playback');
   touring = true; tourEl.hidden = false; document.body.classList.add('touring');
-  const runId = ++tourRun; syncTour();
-  let k = 0; const total = TOUR.reduce((a, t) => a + t.secs, 0); let elapsed = 0;
+  const runId = ++tourRun; syncTour(); let k = 0;
+  const valid = () => touring && runId === tourRun;
   const step = () => {
-    if (!touring || runId !== tourRun) return;
+    if (!valid()) return;
+    clearTimeout(tourTimer); stopVoice();
     if (k >= TOUR.length) { endTour(); toast('That’s the tour. The resume is one click away.'); document.querySelector('#contact .resume-link')?.focus({ preventScroll: true }); return; }
-    const t = TOUR[k];
-    lenis?.start(); goTo(t.station); clearTimeout(tourSettleTimer); tourSettleTimer = setTimeout(() => { if (touring && runId === tourRun) lenis?.stop(); }, 2300);
+    const t = TOUR[k], index = k;
+    const current = () => valid() && k === index;
+    lenis?.start(); goTo(t.station); clearTimeout(tourSettleTimer); tourSettleTimer = setTimeout(() => { if (current()) lenis?.stop(); }, 2300);
     $('#tour-step').textContent = `${k + 1} / ${TOUR.length} · ${STATIONS.find((s) => s.id === t.station)?.label || ''}`;
     $('#tour-text').textContent = t.text;
-    const run = (secs) => {
-      if (!touring || runId !== tourRun) return;
-      const bar = $('#tour-progress'); bar.style.transition = 'none'; bar.style.width = `${(elapsed / total) * 100}%`;
-      requestAnimationFrame(() => { if (!touring || runId !== tourRun) return; bar.style.transition = `width ${secs}s linear`; bar.style.width = `${Math.min(100, ((elapsed + t.secs) / total) * 100)}%`; });
-      elapsed += t.secs; k++; tourTimer = setTimeout(step, secs * 1000);
+    const bar = $('#tour-progress'); bar.style.transition = 'none'; bar.style.width = `${k / TOUR.length * 100}%`;
+    $('#tour-browser-voice').hidden = true;
+    const complete = () => { if (!current()) return; k++; step(); };
+    tourNext = complete;
+    const done = () => { if (!current()) return; $('#tour-status').textContent = 'Narration complete.'; tourTimer = setTimeout(complete, 1600); };
+    const status = ({ status }) => {
+      if (!current()) return;
+      const messages = { loading: 'Loading Alo’s recording…', playing: 'Alo’s recording is playing.', paused: 'Narration paused. Tap Continue narration.', blocked: 'Tap Continue narration to allow audio.', error: 'Recording unavailable. Retry, use browser voice, or continue with captions.' };
+      $('#tour-status').textContent = messages[status] || '';
+      $('#tour-replay').textContent = ['blocked', 'paused'].includes(status) ? 'Continue narration' : 'Replay narration';
+      $('#tour-browser-voice').hidden = status !== 'error';
     };
-    if (!$('#tour-voice').checked) { run(t.secs); return; }
-    // Narration: my recorded voice (assets/tour-1.mp3 … tour-8.mp3), else the browser voice
-    // Pacing: let the camera arrive, breathe, speak (a touch slower), then breathe again before moving on
-    const ARRIVE = 1.8, BREATH = 2.6, RATE = 0.94;
-    tourClip?.pause(); const clip = new Audio(`assets/tour-${k + 1}.mp3`); tourClip = clip;
-    clip.preservesPitch = true; clip.playbackRate = RATE;
-    const valid = () => touring && runId === tourRun && clip === tourClip;
-    let done = false;
-    clip.addEventListener('loadedmetadata', () => {
-      if (done || !valid()) return; done = true; clearTimeout(tourMediaTimer);
-      tourArrivalTimer = setTimeout(() => { if (!valid() || !$('#tour-voice').checked) return; audio.duck(true); clip.playbackRate = RATE; clip.play().catch(() => { if (valid()) { audio.duck(false); if ($('#tour-voice').checked) speak(t.text, { rate: 1.03 }); } }); }, ARRIVE * 1000);
-      run(Math.max(t.secs, ARRIVE + (Number.isFinite(clip.duration) ? clip.duration / RATE : t.secs) + BREATH));
-    });
-    clip.addEventListener('ended', () => { if (valid()) audio.duck(false); });
-    const fallback = () => { if (done || !valid()) return; done = true; clearTimeout(tourMediaTimer); if ($('#tour-voice').checked) speak(t.text, { rate: 1.03 }); run(t.secs); };
-    clip.addEventListener('error', fallback);
-    tourMediaTimer = setTimeout(fallback, 4000);
+    const narrate = () => {
+      if (!current()) return;
+      clearTimeout(tourTimer); stopVoice();
+      narration.play(`assets/tour-${k + 1}.mp3?v=22`, { onState: status, onEnd: done });
+    };
+    tourStep = {
+      narrate,
+      retry() { if (!current()) return; clearTimeout(tourTimer); if (['blocked', 'paused'].includes(narration.status)) narration.retry(); else narrate(); },
+      captions() { if (!current()) return; clearTimeout(tourTimer); stopVoice(); $('#tour-status').textContent = 'Captions only. Audio is off.'; $('#tour-browser-voice').hidden = true; $('#tour-replay').hidden = true; tourTimer = setTimeout(complete, t.secs * 1000); },
+      browserVoice() { if (!current()) return; clearTimeout(tourTimer); speak(t.text, { feedback: false, onState: state => {
+        status(state); if (state.status === 'playing') $('#tour-status').textContent = 'Browser voice is reading the caption.';
+        if (['error', 'blocked'].includes(state.status)) { $('#tour-status').textContent = 'Browser voice did not start. Tap Read caption to retry, or use Next stop.'; $('#tour-browser-voice').hidden = false; }
+      }, onEnd: done }); },
+    };
+    $('#tour-replay').hidden = !$('#tour-voice').checked;
+    if ($('#tour-voice').checked) narrate(); else tourStep.captions();
   };
   step();
 }
 $('#tour-skip').addEventListener('click', endTour);
+$('#tour-next').addEventListener('click', () => tourNext?.());
+$('#tour-replay').addEventListener('click', () => { setAudioSessionType('playback'); tourStep?.retry(); });
+$('#tour-browser-voice').addEventListener('click', () => { setAudioSessionType('playback'); tourStep?.browserVoice(); });
 $('#tour-voice').addEventListener('change', () => {
-  if (!$('#tour-voice').checked) { clearTimeout(tourArrivalTimer); tourClip?.pause(); stopVoice(); }
+  if (!touring) return;
+  if (!$('#tour-voice').checked) tourStep?.captions();
+  else { setAudioSessionType('playback'); $('#tour-replay').hidden = false; tourStep?.narrate(); }
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden) { endTour(); stopVoice(); } });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    if (touring && !$('#tour-voice').checked) tourStep?.captions();
+    return;
+  }
+  if (touring) {
+    clearTimeout(tourTimer); clearTimeout(tourSettleTimer); synth?.cancel(); activeUtterance = null; audio.duck(false);
+    if ($('#tour-voice').checked) {
+      narration.pause(); $('#tour-status').textContent = 'Tour paused while this tab was in the background. Tap Continue narration or Next stop.';
+      $('#tour-replay').hidden = false; $('#tour-replay').textContent = 'Continue narration';
+    } else {
+      $('#tour-status').textContent = 'Captions paused while this tab was in the background.';
+    }
+  } else stopVoice();
+});
 document.addEventListener('click', (e) => { if (e.target.closest('[data-tour]')) { e.preventDefault(); $('#section-menu').open = false; touring ? endTour() : startTour(); } });
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && touring) endTour(); });
 
@@ -919,13 +997,7 @@ if (renderer) boot().catch(() => {
 });
 
 async function boot() {
-  const loaderCount = $('#loader-count'), loaderBar = $('#loader-bar');
-  const bootLog = $('#boot');
-  const progress = async (p, line) => {
-    loaderCount.textContent = String(Math.round(p * 100)).padStart(2, '0'); loaderBar.style.width = `${p * 100}%`;
-    if (line) { const d = document.createElement('div'); d.textContent = line; bootLog.append(d); while (bootLog.children.length > 4) bootLog.firstChild.remove(); }
-    await nextFrame();
-  };
+  const progress = async () => { await nextFrame(); };
 
   renderer.setPixelRatio(Math.min(devicePixelRatio, HIGH() ? 2 : 1));
   renderer.setSize(innerWidth, innerHeight);
@@ -2092,7 +2164,7 @@ async function boot() {
       frames++; if (raw > 1 / 36) slow++;
       if (frames === 150) {
         if (slow > 90 && HIGH()) { tier = 'low'; applyTier(); frames = 0; slow = 0; } // re-check once in low quality
-        else { watched = true; if (slow > 90) offerLite('slow'); }                   // still struggling: offer the text version
+        else { watched = true; }                                                    // low quality is the final automatic downgrade
       }
     }
   });

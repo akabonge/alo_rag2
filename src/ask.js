@@ -8,7 +8,7 @@ const SYN = {
   work: ['experience', 'intern', 'internship'], job: ['experience', 'intern'], jobs: ['experience', 'intern'], worked: ['experience', 'intern'],
   school: ['umw', 'university', 'degree'], college: ['umw', 'university', 'degree'], study: ['degree', 'data', 'science'], education: ['umw', 'degree'],
   award: ['place', 'pitch', 'ncur', 'presented', 'won'], awards: ['place', 'pitch', 'ncur', 'won'], won: ['place', 'pitch'],
-  contact: ['email', 'linkedin', 'github', 'reach'], hire: ['contact', 'email', 'roles', 'open'], email: ['contact'], reach: ['contact', 'email'],
+  contact: ['email', 'linkedin', 'github', 'reach'], availability: ['contact', 'currently', 'flatter'], hire: ['contact', 'email', 'currently', 'flatter'], email: ['contact'], reach: ['contact', 'email'],
   from: ['uganda', 'arrived'], home: ['uganda', 'fredericksburg'], born: ['uganda'], country: ['uganda'], live: ['fredericksburg', 'live'],
   rag: ['retrieval', 'pinecone', 'embeddings'], ai: ['llm', 'claude', 'agentic'], llm: ['claude', 'ollama', 'bedrock'],
   demo: ['demos', 'live', 'railway', 'assistant'], demos: ['live', 'railway', 'assistant'], restaurant: ['bistro', 'aria'], law: ['vera', 'intake'],
@@ -20,8 +20,9 @@ const SYN = {
 
 const stem = (w) => w.replace(/(ing|ed|es|s)$/,'');
 // Keep qualified roles distinct, and resolve common career-availability wording
-// to the existing Contact statement. This does not equate unrelated "open source"
-// questions with availability or treat campus vice-presidents as a president.
+// to the current employment fact, without implying a job-search status. This
+// does not equate unrelated "open source" questions with availability or treat
+// campus vice-presidents as a president.
 const words = (s) => s.toLowerCase().replace(/[’']/g, '')
   .replace(/\bvice[\s-]+presidents?\b/g, 'vicepresident')
   .replace(/\b(?:open|available|looking|seeking)\s+(?:(?:to|for)\s+)?(?:(?:a|an)\s+)?(?:(?:new|another|any)\s+)?(?:work|jobs?|roles?|positions?|opportunities|hire)\b/g, 'availability')
@@ -50,7 +51,7 @@ export function buildCorpus() {
   c.push({ station: 'demos', src: 'Live demos', text: `Five live AI demos for local businesses: ${DEMOS.map((d) => `${d.name} (${d.agent}, ${d.vertical.toLowerCase()})`).join(', ')}. Each runs Claude tool-calling with an Ollama fallback, ChromaDB embeddings and an MCP server on Railway.` });
   DEMOS.forEach((d) => c.push({ station: 'demos', src: `Demo · ${d.name}`, open: `demo:${d.id}`, text: `${d.name} is a live ${d.vertical.toLowerCase()} demo. ${d.text} The assistant is called ${d.agent}.` }));
   Object.entries(SKILLS).forEach(([k, v]) => c.push({ station: 'skills', src: `Skills · ${k}`, text: `${k} skills: ${v.join(', ')}.` }));
-  c.push({ station: 'contact', src: 'Contact', text: `Reach Alo by email at ${PROFILE.email}, on LinkedIn (aloysious-kabonge) or GitHub (akabonge). Currently working at Flatter, Inc. and not seeking new roles. Mantra: one day at a time.` });
+  c.push({ station: 'contact', src: 'Contact', text: `Reach Alo by email at ${PROFILE.email}, on LinkedIn (aloysious-kabonge) or GitHub (akabonge). Currently working at Flatter, Inc. Mantra: one day at a time.` });
   return c.map((d) => ({ ...d, toks: tokens(d.text + ' ' + d.src), tset: new Set(tokens(d.text + ' ' + d.src)), stoks: new Set(tokens(d.src)) }));
 }
 

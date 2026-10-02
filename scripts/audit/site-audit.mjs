@@ -129,6 +129,10 @@ async function auditDevice(browser, name, device, options, out, mirrorRoot) {
     const initialNetwork = await network.snapshot();
     const timing = await page.evaluate(() => ({ ...window.__aloAudit.timing }));
     const contentReadyMs = timing.contentVisibleMs !== null && timing.loaderDismissedMs !== null ? Math.max(timing.contentVisibleMs, timing.loaderDismissedMs) : null;
+    // A short viewport can move the first readable card after its intro. The
+    // installed probe records the first verified usable frame, so do not turn
+    // that real evidence into a false timeout merely because polling began later.
+    ready = ready || contentReadyMs !== null;
     const navigation = await page.evaluate(() => performance.getEntriesByType('navigation')[0]?.toJSON() || null);
     let stations = await page.locator('section.station').evaluateAll((elements) => elements.map((el) => el.id).filter(Boolean));
     if (options.quick) stations = stations.filter((station) => ['welcome', 'hero', 'projects', 'contact'].includes(station));
