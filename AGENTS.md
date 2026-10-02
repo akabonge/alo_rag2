@@ -28,4 +28,4 @@ This repository is the production 3D portfolio. Read `docs/OFFICE.md` for the te
 
 ## Review roles
 
-Claude leads UX, architecture and cross-agent review. Codex implements and verifies scoped changes and handles assigned integration. Grok researches current sources and challenges assumptions. These are starting assignments, not claims that a model is inherently best at a task.
+Claude leads UX, architecture and cross-agent review. Codex implements and verifies scoped changes and handles assigned integration. Grok researches current sources and challenges assumptions. The local Phi and Llama desks (`scripts/office/local.ps1`, see `docs/OFFICE.md`) produce small private drafts that the requesting desk must verify; they are not a source of facts. These are starting assignments, not claims that a model is inherently best at a task.
