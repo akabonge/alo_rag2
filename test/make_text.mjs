@@ -30,7 +30,7 @@ ul { padding-left: 20px; } .top { display:flex; gap:12px; flex-wrap:wrap; margin
 .tags { color: var(--muted); font-size: .9rem; }
 </style>
 </head><body><main>
-<p class="top"><a href="./">← Back to the 3D site</a> <a href="${e(P.site2d)}">2D site</a> <a href="assets/Aloysious_Kabonge_AI_ML_Engineer_Resume.pdf">Resume (PDF)</a></p>
+<p class="top"><a href="./">← Back to the 3D site</a> <a href="${e(P.site2d)}">2D site</a> <a href="assets/Aloysious_Kabonge_AI_ML_Engineer_Resume.pdf" download="Aloysious Kabonge Resume.pdf">Resume (PDF)</a></p>
 <header>
 <p class="meta" lang="lg"><b>Oli otya?</b> (How are you? in Luganda)</p>
 <h1>${e(P.name)}</h1>
