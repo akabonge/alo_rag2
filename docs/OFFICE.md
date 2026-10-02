@@ -8,6 +8,8 @@ flowchart TB
     Board --> Claude[Claude Code / Opus 5.5]
     Board --> Codex[Codex / GPT-6 Astra Ultra]
     Board --> Grok[Cline / Grok 4.7 via OpenRouter]
+    Claude -. small drafts .-> Local[Phi + Llama local desks via Ollama]
+    Codex -. small drafts .-> Local
     Claude --> CW[alo-claude worktree]
     Codex --> OW[alo-codex worktree]
     Grok --> GW[alo-grok worktree]
@@ -25,6 +27,8 @@ flowchart TB
 | Claude | Architecture, UX, writing and review | Claude Code; `claude-opus-5-5` | `claude/*` |
 | Codex | Implementation, checks and assigned integration | Codex; `gpt-6-astra`, `ultra` reasoning | `codex/*` |
 | Grok | Current research and independent critique | Cline → OpenRouter → `x-ai/grok-4.7` | `grok/*` |
+| Phi (local) | Proofreading short copy | `scripts/office/local.ps1` → Ollama → `phi4-mini` | None: drafts only |
+| Llama (local) | Plain-language rewrites, summaries, commit-message drafts | `scripts/office/local.ps1` → Ollama → `llama3.1:8b-instruct-q4_K_M` | None: drafts only |
 
 These roles are practical starting assignments. Claude's model is configured in `.claude/settings.json`. Codex's project configuration is in `.codex/config.toml`; trusted project settings and the model picker should be checked when opening the desk. They do not change the model of an already-running conversation. Grok's provider and key are selected privately in Cline settings, not in tracked files.
 
@@ -50,6 +54,23 @@ git fetch origin
 Separate desk windows are optional: `./scripts/office/open.ps1 -Agent Claude` (or `Codex` / `Grok`). For the normal single-window office, omit `-Agent`. Keep concurrent edits inside the assigned worktree. Before starting a task, tell the extension which folder to use and have it confirm the Git root and branch. Do not assume all extensions select the same root in a multi-folder workspace. All worktrees share Git refs and remote credentials, but not uncommitted files.
 
 The shared workspace lists Grok first because Cline loads its rules and Git context from the primary folder. Cline's automatic checkpoints are unavailable in multi-root workspaces, so use Git commits for recovery. Claude and Codex should explicitly work in their named folder. See [Cline's multi-root guidance](https://docs.cline.bot/features/multiroot-workspace).
+
+## Local desks (Phi and Llama)
+
+Two small models run on this laptop through Ollama. They cost nothing per request and send nothing to a cloud provider, so they suit private or repetitive drafting. They are helpers to the other desks, not independent workers: they have no worktree, do not edit files or run Git, and are never a source of portfolio facts.
+
+```powershell
+./scripts/office/local.ps1 -Task proofread -Path <file>        # Phi: typos, repeated words, em dashes
+./scripts/office/local.ps1 -Task plain -Path <file>            # Llama: plain-language rewrite, facts kept
+./scripts/office/local.ps1 -Task summarize -Path <handoff.md>  # Llama: 5-bullet summary for Alo
+git diff --stat origin/main | ./scripts/office/local.ps1 -Task commit  # Llama: commit-message draft
+```
+
+Each run saves a draft with model, digest, input hash and timing under `alo-office/local/`. The desk that asked for it verifies the draft before using it. Use `-Desk phi` or `-Desk llama` to override the default model.
+
+Limits measured on this laptop (Intel Core Ultra 5 125U, 16 GB RAM, no discrete GPU) on 2026-10-01: phi4-mini about 8 tokens/s, llama3.1 8B about 5 tokens/s plus a model load of up to 25 s. Input is capped at 6,000 characters; send excerpts, not whole source files. Only one model fits in memory alongside VS Code, so run local jobs one at a time. In testing, Phi found a spelling error and two repeated words but missed an em dash; the script therefore reports em dashes itself.
+
+Do not point Cline or another agent loop at these models. A full agent prompt would take many minutes to read at these speeds, and 8B-class models are unreliable at multi-file edits.
 
 ## Connect accounts
 
