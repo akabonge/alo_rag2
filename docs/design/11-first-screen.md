@@ -13,7 +13,7 @@ Captured from production (`7e2bbbf`) on 2026-10-02 at 390×844 and 1440×900, af
 The first screen shows a portrait, a Luganda greeting and two buttons: **Enter** and **Take the tour**. It does not say:
 
 1. **Who this is.** The name is only in the portrait's `alt` and `aria-label`. The visible name, role and resume link are on the second station (`#hero`), reached by scrolling or **Enter**.
-2. **What the strongest work is.** The facts row (5 live demos, 4 internships) is also on `#hero`. Projects are five stations down.
+2. **What the strongest work is.** The facts row (5 live demos, 4 internships) is also on `#hero`. Projects are four stations down.
 3. **How to make contact.** No contact route is visible on phone. On desktop, only the HUD offers Ask.
 
 The page also has two `h1` elements (`.oli` and `#hero h1`). The first one a screen reader or search engine meets is "Oli otya?", not Alo's name.
@@ -26,7 +26,7 @@ The greeting, recorded audio and the 3D journey are the site's identity. Every o
 | --- | --- | --- | --- |
 | Who is this? | Scroll or tap Enter, read `#hero` | Visible on load | Visible on load, as the largest text |
 | What do they do? | `#hero` subtitle | Visible on load | Visible on load |
-| Best work | Scroll 5 stations, or tap Explore | One tap: **See my work** | Proof chips visible; one tap |
+| Best work | Scroll 4 stations, or tap Explore | One tap: **See my work** | Proof chips visible; one tap |
 | Resume / contact | Resume on `#hero`; contact is the last station | **Resume** on the first screen | **Contact** on the first screen |
 | Greeting | Hero of the screen | Hero of the screen | Kept, one line, still plays |
 
