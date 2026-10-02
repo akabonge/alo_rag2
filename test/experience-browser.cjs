@@ -53,9 +53,13 @@ async function screenshot(page, name) { if (output) await page.screenshot({ path
       check('Sound opt-out suspends audio and synchronizes both controls', off.contexts.length === 1 && off.contexts[0] !== 'running' && off.pressed.every(value => value === 'false'), off);
 
       await page.locator('#ask-toggle').click();
+      await page.waitForFunction(() => {
+        const ask = document.querySelector('#ask'), dock = document.querySelector('#experience-controls');
+        return !ask.hidden && dock.inert && Number.parseFloat(getComputedStyle(dock).opacity) < 0.01;
+      });
       check('Ask makes the compact dock inert so it cannot overlap the question panel', await page.evaluate(() => {
         const dock = document.querySelector('#experience-controls');
-        return !document.querySelector('#ask').hidden && dock.inert && getComputedStyle(dock).opacity === '0';
+        return !document.querySelector('#ask').hidden && dock.inert && Number.parseFloat(getComputedStyle(dock).opacity) < 0.01;
       }), {});
       await page.keyboard.press('Escape');
       await page.locator('#section-menu summary').click();

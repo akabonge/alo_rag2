@@ -667,8 +667,7 @@ function playSequence(list, fallback) {
     narration.play(`${list[index++]}?v=22`, {
       onState: ({ status }) => {
         if (token !== voiceSequence) return;
-        if (status === 'loading') voiceFeedback('Loading Alo’s recording…');
-        else if (status === 'playing') voiceFeedback('Playing Alo’s recording.');
+        if (status === 'loading' || status === 'playing') voiceFeedback();
         else if (status === 'blocked' || status === 'paused') voiceFeedback('Audio is paused. Tap Continue audio.', () => narration.retry(), 'Continue audio');
         else if (status === 'error') voiceFeedback(`Recording unavailable. ${fallback || ''}`, () => narration.retry({ restart: true }), 'Retry recording');
       },
@@ -679,7 +678,7 @@ function playSequence(list, fallback) {
 }
 function playVoice(src, fallback) { playSequence([src], fallback); }
 $('#greet-reply').addEventListener('click', () => {
-  $('#oli-reply').hidden = false; $('#greet-reply').hidden = true;
+  $('#oli-reply').hidden = false;
   playSequence(['assets/gyendi.mp3', 'assets/tukusanyukidde.mp3', 'assets/im-aloysious.mp3'], 'Gyendi! I am fine. Welcome; I’m Aloysious.');
 });
 $('#hear-greet').addEventListener('click', () => playVoice('assets/oli-otya.mp3', 'Oli otya? How are you?'));
