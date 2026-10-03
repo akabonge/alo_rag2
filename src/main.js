@@ -915,6 +915,7 @@ document.querySelectorAll('[data-motion]').forEach((button) => button.addEventLi
 updateMotion();
 const sections = STATIONS.map((s) => document.querySelector(`[data-station="${s.id}"]`));
 let stops = [];
+const phoneLayout = matchMedia('(max-width: 720px)'); // matches the phone station layout in page.html
 function measureStops() {
   const max = document.documentElement.scrollHeight - innerHeight;
   const headroom = Math.max(110, $('.hud-top').getBoundingClientRect().bottom + 12);
@@ -922,7 +923,9 @@ function measureStops() {
     if (i === 0) return 0;
     const content = el.querySelector('.panel, .hero-copy, .welcome-card') || el;
     const rect = content.getBoundingClientRect(), top = rect.top + scrollY;
-    const target = rect.height > innerHeight - headroom - 90 ? top - headroom : top + rect.height / 2 - innerHeight / 2;
+    // Phones: stop with the panel's top at 60% of the screen, so the scene is visible above it.
+    const target = phoneLayout.matches ? top - innerHeight * 0.6
+      : rect.height > innerHeight - headroom - 90 ? top - headroom : top + rect.height / 2 - innerHeight / 2;
     return Math.max(0, Math.min(max, target));
   });
 }
