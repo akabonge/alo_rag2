@@ -11,11 +11,22 @@ const watchdog = new vm.Script(main.slice(start, end));
 
 test('Slow rendering downgrades once without covering the portfolio with another prompt', () => {
   const actions = [];
-  const ctx = vm.createContext({ frames: 0, slow: 0, watched: false, performanceElapsed: 5, raw: 0.04, t: 0, dt: 0, tier: 'high',
-    HIGH() { return ctx.tier === 'high'; }, applyTier() { actions.push('low'); },
+  const ctx = vm.createContext({ frames: 0, slow: 0, watched: false, performanceElapsed: 5, raw: 0.04, t: 0, dt: 0, tier: 'high', lowPR: 1.5, devicePixelRatio: 3,
+    HIGH() { return ctx.tier === 'high'; }, applyTier() { actions.push(`${ctx.tier}@${ctx.lowPR}`); },
+  });
+  for (let i = 0; i < 450; i++) watchdog.runInContext(ctx);
+  assert.deepEqual(actions, ['low@1.5', 'low@1']); // low quality first, then 1x pixels on a dense screen
+  assert.equal(ctx.watched, true);
+});
+
+test('Slow rendering on a 1x screen stops after the low-quality downgrade', () => {
+  const actions = [];
+  const ctx = vm.createContext({ frames: 0, slow: 0, watched: false, performanceElapsed: 5, raw: 0.04, t: 0, dt: 0, tier: 'high', lowPR: 1.5, devicePixelRatio: 1,
+    HIGH() { return ctx.tier === 'high'; }, applyTier() { actions.push(ctx.tier); },
   });
   for (let i = 0; i < 300; i++) watchdog.runInContext(ctx);
   assert.deepEqual(actions, ['low']);
+  assert.equal(ctx.lowPR, 1.5);
   assert.equal(ctx.watched, true);
 });
 

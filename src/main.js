@@ -46,6 +46,8 @@ const SIGNAL = new THREE.Color(0x6fe3d6);
 const NIGHT = new THREE.Color(0x060a17);
 
 let tier = ((touch || (navigator.hardwareConcurrency || 4) <= 4) ? 'low' : 'high');
+// Low quality still renders at 1.5x on high-density phones so text and stars stay sharp; the watchdog drops it to 1x if frames stay slow.
+let lowPR = 1.5;
 const HIGH = () => tier === 'high';
 
 const linkHover = {}; // data-open key -> hover(on), filled by the 3D scene
@@ -586,11 +588,20 @@ document.addEventListener('visibilitychange', () => {
 let skyPhase = '';
 const fmt = (opts, tz) => new Intl.DateTimeFormat([], tz ? { ...opts, timeZone: tz } : opts);
 const fDate = fmt({ weekday: 'short', month: 'short', day: 'numeric' }), fTime = fmt({ hour: 'numeric', minute: '2-digit', second: '2-digit' });
-const fKla = fmt({ hour: 'numeric', minute: '2-digit', weekday: 'short' }, 'Africa/Kampala'), fFxb = fmt({ hour: 'numeric', minute: '2-digit', weekday: 'short' }, 'America/New_York');
+// The journey clocks sit inside an English sentence, so they stay in English for every visitor.
+const fmtEn = (tz) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', weekday: 'short', ...(tz && { timeZone: tz }) });
+const fKla = fmtEn('Africa/Kampala'), fFxb = fmtEn('America/New_York'), fYou = fmtEn();
+// The visitor's own city comes from their device time zone (no location lookup). Hidden for Alo's two
+// home zones and for zones without a city name (UTC, Etc/GMT+5).
+const youZone = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })();
+const youPlace = youZone.includes('/') && !youZone.startsWith('Etc/') && !['Africa/Kampala', 'America/New_York'].includes(youZone)
+  ? youZone.split('/').pop().replace(/_/g, ' ') : '';
+if (youPlace && $('#t-you-wrap')) { $('#t-you-place').textContent = youPlace; $('#t-you-wrap').hidden = false; }
 function tickClock() {
   const d = new Date();
   $('#sky-chip').innerHTML = `<span class="sc-date">${fDate.format(d)} · </span><time datetime="${d.toISOString()}">${fTime.format(d)}</time>${skyPhase ? `<span class="sky-phase">${esc(skyPhase)}</span>` : ''}`;
   const k = $('#t-kla'), f = $('#t-fxb'); if (k) { k.textContent = fKla.format(d); f.textContent = fFxb.format(d); }
+  if (youPlace) $('#t-you').textContent = fYou.format(d);
 }
 tickClock(); setInterval(tickClock, 1000);
 
@@ -1001,7 +1012,7 @@ if (renderer) boot().catch(() => {
 async function boot() {
   const progress = async () => { await nextFrame(); };
 
-  renderer.setPixelRatio(Math.min(devicePixelRatio, HIGH() ? 2 : 1));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, HIGH() ? 2 : lowPR));
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -1176,8 +1187,18 @@ async function boot() {
 
   // ---------- Visitors' sky: every guestbook note as a named star in its own constellation ----------
   const vis = new THREE.Group(); vis.position.copy(P.stars); scene.add(vis);
-  const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.18, 'rgba(255,226,150,0.95)'); g.addColorStop(0.45, 'rgba(232,181,74,0.35)'); g.addColorStop(1, 'rgba(232,181,74,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  // A star, not a blob: white-hot core, gold halo and four thin diffraction rays, so it stays crisp and reads as a star at any size.
+  const glowTex = (() => { const S = 256, m = S / 2, c = document.createElement('canvas'); c.width = c.height = S; const x = c.getContext('2d');
+    const g = x.createRadialGradient(m, m, 0, m, m, m);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.07, 'rgba(255,250,232,1)'); g.addColorStop(0.16, 'rgba(255,214,120,0.8)'); g.addColorStop(0.4, 'rgba(232,181,74,0.22)'); g.addColorStop(1, 'rgba(232,181,74,0)');
+    x.fillStyle = g; x.fillRect(0, 0, S, S);
+    x.globalCompositeOperation = 'lighter';
+    [[0, 1, 0.9], [Math.PI / 2, 1, 0.9], [Math.PI / 4, 0.42, 0.45], [-Math.PI / 4, 0.42, 0.45]].forEach(([a, len, alpha]) => {
+      x.save(); x.translate(m, m); x.rotate(a);
+      const ray = x.createLinearGradient(-m * len, 0, m * len, 0);
+      ray.addColorStop(0, 'rgba(255,230,170,0)'); ray.addColorStop(0.5, `rgba(255,248,225,${alpha})`); ray.addColorStop(1, 'rgba(255,230,170,0)');
+      x.fillStyle = ray; x.fillRect(-m * len, -1.6, m * len * 2, 3.2); x.restore();
+    });
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   let visItems = [], visLine = null, visEmpty = null, visCount = $('#vis-count');
   let clearVisitorHover = () => {}; // assigned after pointer state exists below
@@ -1195,11 +1216,11 @@ async function boot() {
     if (visEmpty) { vis.remove(visEmpty); visEmpty.material.map.dispose(); visEmpty.material.dispose(); visEmpty = null; }
     const shown = list.slice(0, 60), ga = Math.PI * (3 - Math.sqrt(5)), pts = [];
     shown.forEach((n, i) => {
-      const r = 1.4 + Math.sqrt(i) * 1.9, a = i * ga + 0.4, p = new THREE.Vector3(Math.cos(a) * r * 1.3, Math.sin(a) * r * 0.8, Math.sin(i * 1.3) * 0.8);
+      const r = 1.9 + Math.sqrt(i) * 2.5, a = i * ga + 0.4, p = new THREE.Vector3(Math.cos(a) * r * 1.3, Math.sin(a) * r * 0.8, Math.sin(i * 1.3) * 0.8);
       const g = new THREE.Group(); g.position.copy(p); vis.add(g); pts.push(p);
       const star = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-      const size = i === 0 ? 1.9 : 1.2 + hash01(`${n.name}${n.t}`, 5) * 0.5; star.scale.setScalar(size); g.add(star);
-      const tag = label(n.name, n.city || 'a visitor', { h: 1.0 }); tag.position.y = -1.05; g.add(tag);
+      const size = i === 0 ? 3.4 : 2.4 + hash01(`${n.name}${n.t}`, 5) * 0.7; star.scale.setScalar(size); g.add(star);
+      const tag = label(n.name, n.city || 'a visitor', { h: 1.25 }); tag.position.y = -1.45; g.add(tag);
       const hit = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), new THREE.MeshBasicMaterial({ visible: false })); g.add(hit);
       register(hit, { label: `${n.name}${n.city ? ` · ${n.city}` : ''}: “${n.msg}”`, click: () => { toast(`${n.name}${n.city ? ` from ${n.city}` : ''}: “${n.msg}”`); audio.ping(1046, 0.08); },
         hover: (on) => tween(star.scale, { x: size * (on ? 1.5 : 1), y: size * (on ? 1.5 : 1), duration: 0.3 }) });
@@ -1215,9 +1236,22 @@ async function boot() {
     if (visCount) visCount.textContent = list.length ? `${list.length} ${list.length === 1 ? 'star' : 'stars'}${places ? ` from ${places} ${places === 1 ? 'place' : 'places'}` : ''}` : 'No stars yet';
   }
   guest.onChange = (list) => { buildGuestStars(list); buildVisitorSky(list); }; guest.onChange(guest.notes);
-  guest.onPlaced = (_note, confirmation) => {
+  // After a visitor places a star, fly in close so they see it, hold on their note, then ease back.
+  // Any scroll, touch or key hands the camera back immediately.
+  const starFocus = { k: 0, target: new THREE.Vector3() }, focusPos = new THREE.Vector3(), focusLook = new THREE.Vector3();
+  const releaseStarFocus = () => { if (starFocus.k > 0) { gsap.killTweensOf(starFocus); gsap.to(starFocus, { k: 0, duration: 0.9, ease: 'power2.out' }); } };
+  guest.onPlaced = (note, confirmation) => {
     closeGuestbook(); goTo('stars'); toast(confirmation);
-    setTimeout(() => { const it = visItems[0]; if (it && !reduced) gsap.fromTo(it.star.scale, { x: 0.1, y: 0.1 }, { x: it.size * 1.8, y: it.size * 1.8, duration: 1.2, yoyo: true, repeat: 1, ease: 'power3.out' }); audio.arrive(); }, 2400);
+    setTimeout(() => {
+      const it = visItems[0]; audio.arrive(); if (!it) return;
+      if (note?.msg) toast(`Your star: ${note.name}${note.city ? ` · ${note.city}` : ''}: “${note.msg}”`);
+      if (reduced) return;
+      gsap.fromTo(it.star.scale, { x: 0.1, y: 0.1 }, { x: it.size * 1.8, y: it.size * 1.8, duration: 1.2, yoyo: true, repeat: 1, ease: 'power3.out' });
+      it.g.getWorldPosition(starFocus.target);
+      gsap.killTweensOf(starFocus);
+      gsap.timeline().to(starFocus, { k: 1, duration: 1.8, ease: 'power2.inOut' }).to(starFocus, { k: 0, duration: 1.8, ease: 'power2.inOut' }, '+=4.5');
+      ['wheel', 'touchstart', 'keydown'].forEach((type) => addEventListener(type, releaseStarFocus, { once: true, passive: true }));
+    }, 2400);
   };
 
   const core = new THREE.Group(); core.position.copy(P.hero); scene.add(core);
@@ -1984,7 +2018,7 @@ async function boot() {
   });
   composer.addPass(grade);
   function applyTier() {
-    renderer.setPixelRatio(Math.min(devicePixelRatio, HIGH() ? 2 : 1));
+    renderer.setPixelRatio(Math.min(devicePixelRatio, HIGH() ? 2 : lowPR));
     U.uPR.value = renderer.getPixelRatio();
     bloom.enabled = true; bloom.strength = HIGH() ? 0.7 : 0.5;
     composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight);
@@ -2108,6 +2142,11 @@ async function boot() {
     const par = reduced ? 0 : 1;
     camera.position.set(tmpP.x + mouse.x * 0.7 * par, tmpP.y + mouse.y * 0.35 * par, tmpP.z);
     tmpL.x += look.x * 12; tmpL.y += look.y * 8;
+    if (starFocus.k > 0) { // close-up on a newly placed star; on phones it sits above the peeking panel
+      const ft = starFocus.target, phone = phoneLayout.matches;
+      focusPos.set(ft.x, ft.y + 0.4, ft.z + (phone ? 10 : 7.5)); focusLook.set(ft.x, ft.y - (phone ? 2.6 : 0.3), ft.z);
+      camera.position.lerp(focusPos, starFocus.k); tmpL.lerp(focusLook, starFocus.k);
+    }
     camera.lookAt(tmpL);
     sky.position.copy(camera.position); stars.position.copy(camera.position); guestStars.position.copy(camera.position);
 
@@ -2153,7 +2192,11 @@ async function boot() {
     if (!near(P.skills, 40)) leaveSkills();
     if (near(P.skills)) { stepGraph(dt); const sway = consFocus < 0 && !reduced ? 1 : 0; cons.rotation.y += (Math.sin(t * 0.18) * 0.12 * sway - cons.rotation.y) * 0.05; cons.rotation.x += (Math.sin(t * 0.13) * 0.05 * sway - cons.rotation.x) * 0.05; }
     if (near(P.community)) updateCommunity(t);
-    vis.visible = near(P.stars, 70); if (vis.visible) visItems.forEach((it, i) => { it.star.material.opacity = 0.75 + 0.25 * Math.sin(t * (1.2 + it.seed) + i); });
+    vis.visible = near(P.stars, 70); if (vis.visible) visItems.forEach((it, i) => {
+      const tw = Math.sin(t * (1.2 + it.seed) + i); it.star.material.opacity = 0.85 + 0.15 * tw;
+      if (!reduced && !gsap.isTweening(it.star.scale)) it.star.scale.setScalar(it.size * (1 + 0.08 * tw)); // gentle twinkle
+      it.star.material.rotation = reduced ? 0 : Math.sin(t * 0.3 + it.seed * 6) * 0.12;
+    });
     comm.visible = near(P.community, 70) && camera.position.distanceTo(P.community) < camera.position.distanceTo(P.stars) + 4; cons.visible = near(P.skills, 70); globe.visible = near(P.journey, 90); crane.visible = globe.visible; holo.visible = near(P.contact, 90);
     if (near(P.contact, 120)) { holo.position.y = P.contact.y + Math.sin(t * 0.9) * 0.12; pad.scale.setScalar(1 + Math.sin(t * 2.4) * 0.08); }
 
@@ -2165,8 +2208,9 @@ async function boot() {
     if (!watched && performanceElapsed > 4) {
       frames++; if (raw > 1 / 36) slow++;
       if (frames === 150) {
-        if (slow > 90 && HIGH()) { tier = 'low'; applyTier(); frames = 0; slow = 0; } // re-check once in low quality
-        else { watched = true; }                                                    // low quality is the final automatic downgrade
+        if (slow > 90 && HIGH()) { tier = 'low'; applyTier(); frames = 0; slow = 0; }          // re-check in low quality
+        else if (slow > 90 && lowPR > 1 && devicePixelRatio > 1) { lowPR = 1; applyTier(); frames = 0; slow = 0; } // then at 1x
+        else { watched = true; }                                                             // 1x low quality is the final automatic downgrade
       }
     }
   });
