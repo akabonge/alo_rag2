@@ -390,7 +390,8 @@ const audio = {
     const bellBus = ctx.createGain(); bellBus.gain.value = 0.5; bellBus.connect(dry); bellBus.connect(verb);
     const afroLp = ctx.createBiquadFilter(); afroLp.type = 'lowpass'; afroLp.frequency.value = 2600;
     const afroBus = ctx.createGain(); afroBus.gain.value = 0; afroBus.connect(afroLp); afroLp.connect(dry); afroLp.connect(verb);
-    Object.assign(this, { ctx, master, filter, padBus, guitarBus, bellBus, afroBus, dry, verb });
+    const amadindaBus = ctx.createGain(); amadindaBus.gain.value = 0; amadindaBus.connect(dry); amadindaBus.connect(verb);
+    Object.assign(this, { ctx, master, filter, padBus, guitarBus, bellBus, afroBus, amadindaBus, dry, verb });
     ctx.addEventListener('statechange', () => {
       if (this.on && !document.hidden) { this.blocked = ctx.state !== 'running'; syncSound(); }
     });
@@ -446,11 +447,19 @@ const audio = {
     n.buffer = nbuf; const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = kind === 'high' ? 3000 : 1200; bp.Q.value = 1.2;
     const ngn = ctx.createGain(); ngn.gain.value = level * (kind === 'high' ? 0.5 : 0.25); n.connect(bp).connect(ngn).connect(this.afroBus); n.start(t);
   },
-  pluck(freq, t) {
-    const { ctx } = this, g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
-    [[1, 'sine', 1], [3.9, 'sine', 0.06]].forEach(([m, type, a]) => { const o = ctx.createOscillator(), og = ctx.createGain(); o.type = type; o.frequency.value = freq * m; og.gain.value = a; o.connect(og).connect(g); o.start(t); o.stop(t + 0.5); });
-    g.connect(this.afroBus);
+  // Amadinda log: a struck wooden bar has a ringing fundamental, inharmonic partials that die fast
+  // (about 2.76x and 5.4x) and a short mallet knock.
+  amadinda(freq, t, level) {
+    const { ctx } = this;
+    [[1, 1, 0.55], [2.76, 0.3, 0.16], [5.4, 0.12, 0.07]].forEach(([m, a, dec]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sine'; o.frequency.value = freq * m;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(level * a, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + dec);
+      o.connect(g).connect(this.amadindaBus); o.start(t); o.stop(t + dec + 0.02);
+    });
+    const n = ctx.createBufferSource(), len = Math.floor(ctx.sampleRate * 0.025), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = Math.min(4000, freq * 4); bp.Q.value = 2;
+    const ng = ctx.createGain(); ng.gain.value = level * 0.35; n.buffer = buf; n.connect(bp).connect(ng).connect(this.amadindaBus); n.start(t);
   },
   schedule() {
     if (!this.on || document.hidden || this.ctx.state !== 'running') return;
@@ -485,7 +494,11 @@ const audio = {
         if (DRUM_LOW.has(s)) this.drum('low', t, 0.5);
         if (DRUM_MID.has(s)) this.drum('mid', t, 0.22);
         if (DRUM_HIGH.has(s)) this.drum('high', t, 0.09 + Math.random() * 0.05);
-        if (this.step % 2 === 0) { const k = (this.step >> 1) % 12; this.pluck(AMADINDA[(this.step >> 1) % 2 ? OKWAWULA[k] : OKUNAGA[k]], t); }
+        { // okunaga and okwawula interlock: one note on every pulse, alternating players
+          const okunaga = this.step % 2 === 0, k = (this.step >> 1) % 12, f = AMADINDA[okunaga ? OKUNAGA[k] : OKWAWULA[k]];
+          this.amadinda(f, t, okunaga ? 0.34 : 0.3);
+          if (okunaga) this.amadinda(f * 2, t + 0.006, 0.12);
+        }
       }
       this.next += 0.24; this.step++;
     }
@@ -536,7 +549,7 @@ const audio = {
     this.chord = c;
     if (this.flightAmt >= 0) return;
     const amt = Math.max(0, 1 - Math.abs(f - 2) * 1.2);
-    if (Math.abs(amt - this.afro) > 0.02) { this.afro = amt; this.afroBus.gain.setTargetAtTime(amt * 0.5, t, 0.6); this.guitarBus.gain.setTargetAtTime(amt * 0.9, t, 0.6); }
+    if (Math.abs(amt - this.afro) > 0.02) { this.afro = amt; this.afroBus.gain.setTargetAtTime(amt * 0.5, t, 0.6); this.amadindaBus.gain.setTargetAtTime(amt * 0.8, t, 0.6); this.guitarBus.gain.setTargetAtTime(amt * 0.45, t, 0.6); }
     this.bellRate = Math.abs(f - 6) < 0.6 ? 2 : 1; // more "stars" over the skill constellation
   },
   duck(on) { this.ducked = on; this.level(); },
@@ -547,7 +560,7 @@ const audio = {
     const t = this.ctx.currentTime;
     if (p < 0) return;
     const drums = p < 0.75 ? 1 : Math.max(0, 1 - (p - 0.75) / 0.2);
-    this.afro = drums; this.afroBus.gain.setTargetAtTime(drums * 0.6, t, 0.4); this.guitarBus.gain.setTargetAtTime(drums, t, 0.4);
+    this.afro = drums; this.afroBus.gain.setTargetAtTime(drums * 0.6, t, 0.4); this.amadindaBus.gain.setTargetAtTime(drums * 0.5, t, 0.4); this.guitarBus.gain.setTargetAtTime(drums, t, 0.4);
 
   },
   arrive() {
@@ -1132,11 +1145,8 @@ async function boot() {
     guestGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); guestGeo.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 1));
     guestGeo.computeBoundingSphere(); guestStars.visible = list.length > 0;
   }
-  register(guestStars, {
-    points: true,
-    label: (hit) => { const n = guestList[hit.index]; return n ? `${n.name}${n.city ? ` · ${n.city}` : ''}: “${n.msg}”` : 'A visitor’s star'; },
-    click: () => openGuestbook(),
-  });
+  // The sky dome is decoration only: it surrounds the camera at every station, so it must not catch clicks.
+  // Visitors read and add stars in the Visitors' sky station.
   await progress(0.2, 'Painting the sky, the river and the data motes');
 
   /* ---------- labels ---------- */
@@ -1329,6 +1339,7 @@ async function boot() {
       vec3 c = mix(vec3(0.91,0.71,0.29), vec3(0.44,0.89,0.84), vUv.x); float dash = smoothstep(0.7, 1., fract(vUv.x * 6. - uTime * 0.5));
       gl_FragColor = vec4(c * (1.2 + dash * 2.), 0.55 + dash * 0.45); }`,
   })));
+  const placeEntries = {}, placeLabels = []; // reused by the flags and by buildPath() on narrow screens
   const markers = [[A, GOLD, ORIGIN.label, `${ORIGIN.lat.toFixed(2)}°N ${ORIGIN.lon.toFixed(2)}°E`], [B, SIGNAL, DEST.label, `${DEST.lat.toFixed(2)}°N ${Math.abs(DEST.lon).toFixed(2)}°W`]].map(([pos, col, name, sub]) => {
     const m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 12), new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(2) }));
     m.position.copy(pos); globeInner.add(m);
@@ -1338,6 +1349,9 @@ async function boot() {
     const key = name === ORIGIN.label ? 'place:uganda' : 'place:fredericksburg';
     const entry = { label: `${name} · open`, click: () => openDrawer(key), hover: (on) => tween(l.scale, { x: l.userData.sx * (on ? 1.12 : 1), y: l.userData.sy * (on ? 1.12 : 1), duration: 0.3 }) };
     l.userData.sx = l.scale.x; l.userData.sy = l.scale.y; register(l, entry); register(m, entry);
+    // A finger-sized target around the dot; the dot alone is too small to tap on a phone.
+    const pad = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshBasicMaterial({ visible: false })); pad.position.copy(pos); globeInner.add(pad); register(pad, entry);
+    placeEntries[key] = entry; placeLabels.push({ l, pos });
     return ring;
   });
   TIMELINE.forEach((t, i) => { const s = label(t.year, '', { h: 0.62 }); s.position.copy(arcCurve.getPoint([0.28, 0.46, 0.62, 0.76][i])).multiplyScalar(1.1); globeInner.add(s);
@@ -1347,10 +1361,10 @@ async function boot() {
   globeInner.quaternion.setFromUnitVectors(A.clone().add(B).normalize(), faceDir);
   const globeHit = new THREE.Mesh(new THREE.SphereGeometry(R * 1.1, 16, 12), new THREE.MeshBasicMaterial({ visible: false }));
   globe.add(globeHit);
-  register(globeHit, { label: 'The journey · open the story', click: () => openDrawer('journey'), hover: (on) => tween(globe.scale, { x: on ? 1.04 : 1, y: on ? 1.04 : 1, z: on ? 1.04 : 1, duration: 0.6 }) });
+  register(globeHit, { fallback: true, label: 'The journey · open the story', click: () => openDrawer('journey'), hover: (on) => tween(globe.scale, { x: on ? 1.04 : 1, y: on ? 1.04 : 1, z: on ? 1.04 : 1, duration: 0.6 }) });
   // Waving flags planted at both ends of the arc
   const faceLocal = faceDir.clone().applyQuaternion(globeInner.quaternion.clone().invert());
-  function plantFlag(canvasEl, pos) {
+  function plantFlag(canvasEl, pos, entry) {
     const tex = new THREE.CanvasTexture(canvasEl); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
     const g = new THREE.Group(), n = pos.clone().normalize();
     g.position.copy(pos); g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
@@ -1370,10 +1384,13 @@ async function boot() {
         void main(){ vec3 c = texture2D(uMap, vUv).rgb; c *= 0.72 + vS * 0.28 + 0.12; gl_FragColor = vec4(c, 1.); }`,
     }));
     m.position.y = 2 - hgt / 2; g.add(m);
+    // The flag and pole open the same place page as the pin.
+    const flagHit = new THREE.Mesh(new THREE.BoxGeometry(w + 0.3, 2.1, 0.5), new THREE.MeshBasicMaterial({ visible: false }));
+    flagHit.position.set(w / 2 - 0.1, 1.05, 0); g.add(flagHit); register(flagHit, entry);
     globeInner.add(g);
   }
-  plantFlag(ugandaFlag(), A);
-  plantFlag(usFlag(), B);
+  plantFlag(ugandaFlag(), A, placeEntries['place:uganda']);
+  plantFlag(usFlag(), B, placeEntries['place:fredericksburg']);
 
   // Claude's late-media design: attach the postcard once, whenever its photo arrives.
   let postcard = null, postcardBaseY = 0;
@@ -1971,6 +1988,8 @@ async function boot() {
   function buildPath() {
     narrow = innerWidth < 720;
     camera.fov = narrow ? 62 : 46; camera.updateProjectionMatrix();
+    // Place labels sit farther out on wide screens; on phones they would fall off the screen edges.
+    placeLabels.forEach(({ l, pos }) => l.position.copy(pos).multiplyScalar(narrow ? 1.2 : 1.5));
     // side = where the HTML panel is, so the object sits on the opposite half of the screen.
     const st = [
       { p: P.hero, off: [0, 3, narrow ? 40 : 34], side: 0, shift: 0, y: 26 },
@@ -2044,28 +2063,40 @@ async function boot() {
   clearVisitorHover = (hit) => { if (hoveredHit?.object === hit) setHover(null); };
   canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0, lx: look.tx, ly: look.ty }; });
   addEventListener('pointermove', (e) => {
-    mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    // Parallax follows a mouse only; on touch it would shift the scene toward each swipe and move tap targets.
+    if (e.pointerType !== 'touch') mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     cursor.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`;
     cLabel.style.transform = `translate(${e.clientX + 26}px, ${e.clientY + 18}px)`;
-    if (e.target === canvas) { ndc.copy(mouse); needsPick = true; } else if (hovered) { setHover(null); }
+    // Hover is for a mouse; on touch it would pulse labels and ping during every swipe.
+    if (e.target === canvas && e.pointerType !== 'touch') { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); needsPick = true; } else if (hovered) { setHover(null); }
     if (drag) {
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
       if (e.pointerType !== 'touch' || Math.abs(dx) > Math.abs(dy)) { look.tx = THREE.MathUtils.clamp(drag.lx - dx * 0.004, -0.9, 0.9); look.ty = THREE.MathUtils.clamp(drag.ly + dy * 0.003, -0.5, 0.5); }
     }
   });
+  // A tap is acted on in the canvas click event, not on pointerup: a dialog opened on pointerup would
+  // receive the browser's follow-up click on its backdrop and close at once (seen on phones).
+  let tap = null;
   addEventListener('pointerup', (e) => {
-    if (drag && drag.moved < 6 && e.target === canvas) {
-      ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); const h = pick();
-      if (h) h.entry.click?.(h.hit); else onMissClick?.();
-    }
+    tap = drag && drag.moved < 6 && e.target === canvas ? { x: e.clientX, y: e.clientY } : null;
     drag = null; look.tx = 0; look.ty = 0;
+  });
+  canvas.addEventListener('click', () => {
+    if (!tap) return;
+    ndc.set(tap.x / innerWidth * 2 - 1, -(tap.y / innerHeight) * 2 + 1); tap = null;
+    const h = pick();
+    if (h) h.entry.click?.(h.hit); else onMissClick?.();
   });
   canvas.addEventListener('pointerleave', () => setHover(null));
   addEventListener('pointercancel', () => { drag = null; look.tx = 0; look.ty = 0; });
+  // Raycasting ignores visibility, so skip anything hidden (other stations' scenes and labels).
+  const shown = (o) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
   function pick() {
     ray.setFromCamera(ndc, camera);
-    const list = ray.intersectObjects(hits, false);
-    return list.length ? { entry: list[0].object.userData.hit, hit: list[0] } : null;
+    const list = ray.intersectObjects(hits, false).filter((h) => shown(h.object));
+    // Broad catch-all targets (the whole globe) yield to anything specific under the pointer, such as a place pin.
+    const h = list.find((x) => !x.object.userData.hit.fallback) || list[0];
+    return h ? { entry: h.object.userData.hit, hit: h } : null;
   }
   function setHover(h) {
     const same = h && hovered === h.entry && (!h.entry.instanced || hoveredHit?.instanceId === h.hit.instanceId) && (!h.entry.points || hoveredHit?.index === h.hit.index);
