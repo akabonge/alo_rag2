@@ -1004,6 +1004,8 @@ let renderer;
 try {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
   if (!renderer.capabilities.isWebGL2) throw new Error('WebGL2 required');
+  // Reading every shader's info log blocks on its compile (about 65ms each on Windows); skip it in production.
+  if (location.hostname === '3d.aialo.io') renderer.debug.checkShaderErrors = false;
 } catch (err) {
   document.documentElement.classList.add('no-webgl');
   document.body.classList.add('no-webgl');
@@ -2124,13 +2126,16 @@ async function boot() {
   const startPos = new THREE.Vector3(0, 9, 48);
   window.portfolioBoot?.ready();
   setTimeout(openDeepLink, hashStation() ? 900 : 0);
-  if (!reduced) {
-    tween(intro, { k: 1, duration: 3.2, ease: 'power3.inOut' });
-    gsap.from('.welcome-card > *', { y: 24, opacity: 0, duration: 1.1, stagger: 0.1, delay: 0.6, ease: 'power3.out' });
-  }
+  if (!reduced) gsap.from('.welcome-card > *', { y: 24, opacity: 0, duration: 1.1, stagger: 0.1, delay: 0.6, ease: 'power3.out' });
 
-  // Compile every shader up front so nothing stalls or flashes the first time it comes into view
-  try { renderer.compile(scene, camera); } catch { /* optional */ }
+  // Compile every shader up front without blocking the page. The old synchronous compile
+  // froze the first frame for 0.6s on a desktop GPU and for seconds on phones, mid-intro.
+  // The scene renders into the bloom composer's buffer, which changes every shader's variant, so compile
+  // against that target.
+  let compiled;
+  try { renderer.setRenderTarget(composer.readBuffer); compiled = renderer.compileAsync(scene, camera); } catch { /* optional */ }
+  renderer.setRenderTarget(null);
+  try { await Promise.race([compiled, new Promise((r) => setTimeout(r, 4000))]); } catch { /* optional */ }
   // Fetch only media near the current section. Save-Data narrows the window to
   // half a station; drawer-only photos are requested only when opened.
   const updateScenePhotos = createStationMedia([
@@ -2245,4 +2250,8 @@ async function boot() {
       }
     }
   });
+  // Start the camera intro only after the first frames (bloom passes, texture uploads) have
+  // rendered, so their one-time cost does not make the opening flight jump.
+  await nextFrame(); await nextFrame();
+  if (!reduced && intro.k < 1) tween(intro, { k: 1, duration: 3.2, ease: 'power3.inOut' });
 }
