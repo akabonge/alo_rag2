@@ -37,12 +37,14 @@
   compact.addEventListener('change', arrangeControls);
   addEventListener('resize', arrangeControls);
   arrangeControls();
-  const headerObserver = new ResizeObserver(() => {
+  // Layout changes run on the next frame, outside the observer callback; changing layout inside it
+  // makes Safari report "ResizeObserver loop completed with undelivered notifications" as a page error.
+  const headerObserver = new ResizeObserver(() => requestAnimationFrame(() => {
     arrangeControls();
     document.documentElement.style.setProperty('--hud-h', `${header.getBoundingClientRect().height}px`);
-  });
+  }));
   [header, document.querySelector('.hud-actions'), document.querySelector('.brand'), document.documentElement].forEach((element) => headerObserver.observe(element));
-  new ResizeObserver(() => document.documentElement.style.setProperty('--dock-h', `${dock.getBoundingClientRect().height}px`)).observe(dock);
+  new ResizeObserver(() => requestAnimationFrame(() => document.documentElement.style.setProperty('--dock-h', `${dock.getBoundingClientRect().height}px`))).observe(dock);
   menu.addEventListener('click', (event) => {
     if (event.target.closest('a')) menu.open = false;
   });
